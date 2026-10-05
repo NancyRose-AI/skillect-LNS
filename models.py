@@ -81,6 +81,30 @@ class Lead(Base):
     )
 
     # =====================================================
+    # PERSON-2 AI QUALIFICATION DATA
+    # =====================================================
+
+    interest = Column(
+        String(100),
+        nullable=True,
+    )
+
+    budget = Column(
+        Integer,
+        nullable=True,
+    )
+
+    timeline = Column(
+        String(50),
+        nullable=True,
+    )
+
+    requirement = Column(
+        String(150),
+        nullable=True,
+    )
+
+    # =====================================================
     # PERSON-2 AI QUALIFICATION SCORING
     # =====================================================
 
@@ -93,7 +117,7 @@ class Lead(Base):
     ai_temperature = Column(
         String(20),
         nullable=False,
-        default="COLD",
+        default="cold",
     )
 
     # =====================================================
@@ -219,4 +243,56 @@ class Conversation(Base):
     lead = relationship(
         "Lead",
         back_populates="conversations",
+    )
+
+    # =========================================================
+# NURTURE MESSAGE MODEL
+# PERSON-2 AUTOMATED COLD-LEAD NURTURING
+# =========================================================
+
+class NurtureMessage(Base):
+    __tablename__ = "nurture_messages"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+    )
+
+    lead_id = Column(
+        Integer,
+        ForeignKey(
+            "leads.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    message = Column(
+        Text,
+        nullable=False,
+    )
+
+    stage = Column(
+        Integer,
+        nullable=False,
+    )
+
+    status = Column(
+        String(20),
+        nullable=False,
+        default="generated",
+    )
+
+    sent_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )

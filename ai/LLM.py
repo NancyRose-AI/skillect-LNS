@@ -131,7 +131,7 @@ def clean_response_format(text: str) -> str:
     for line in text.splitlines():
 
         cleaned_line = re.sub(
-            r"^\s*[\*\-•]\s+",
+            r"^\s*[*\-•]\s+",
             "",
             line
         )
@@ -458,11 +458,9 @@ def get_qualification_statement_response(
     if not qualification:
         return None
 
-
     prompt_lower = (
         prompt.lower().strip()
     )
-
 
     interest = qualification.get(
         "interest"
@@ -498,7 +496,6 @@ def get_qualification_statement_response(
         phrase in prompt_lower
         for phrase in budget_phrases
     )
-
 
     if (
         is_budget_statement
@@ -572,7 +569,6 @@ def get_qualification_statement_response(
         for phrase in timeline_phrases
     )
 
-
     if (
         is_timeline_statement
         and timeline
@@ -634,7 +630,6 @@ def get_qualification_memory_response(
 
     if not qualification:
         return None
-
 
     prompt_lower = (
         prompt.lower().strip()
@@ -912,17 +907,14 @@ def ask_ai(
         prompt.lower()
     )
 
-
     current_mentions_aws = (
         "aws" in prompt_lower
         or "amazon" in prompt_lower
     )
 
-
     current_mentions_azure = (
         "azure" in prompt_lower
     )
-
 
     current_has_explicit_provider = (
         current_mentions_aws
@@ -933,7 +925,6 @@ def ask_ai(
     if current_has_explicit_provider:
 
         retrieval_query = prompt
-
 
     else:
 
@@ -948,16 +939,13 @@ def ask_ai(
                 )
             ][-3:]
 
-
             retrieval_parts.extend(
                 recent_user_messages
             )
 
-
         retrieval_parts.append(
             prompt
         )
-
 
         retrieval_query = " ".join(
             retrieval_parts
@@ -972,19 +960,16 @@ def ask_ai(
         time.perf_counter()
     )
 
-
     business_knowledge = (
         retrieve_relevant_knowledge(
             retrieval_query
         )
     )
 
-
     rag_time = (
         time.perf_counter()
         - rag_start
     )
-
 
     print(
         f"RAG TIME: "
@@ -995,7 +980,6 @@ def ask_ai(
     knowledge_found = bool(
         business_knowledge.strip()
     )
-
 
     if not knowledge_found:
 
@@ -1025,7 +1009,6 @@ Requirement:
 {qualification.get("requirement")}
 """
 
-
     else:
 
         qualification_context = """
@@ -1040,7 +1023,6 @@ No structured qualification data is currently available.
     prompt_build_start = (
         time.perf_counter()
     )
-
 
     system_content = f"""
 {SYSTEM_PROMPT}
@@ -1131,6 +1113,37 @@ STRICT GROUNDING RULES:
     when that field already has a value in CURRENT STRUCTURED
     QUALIFICATION.
 
+23. CLOSED-BOOK BUSINESS RULE:
+    For business-information questions, do NOT use pretrained knowledge,
+    general AWS knowledge, general Azure knowledge, or assumptions.
+
+24. Every factual business claim in the final response must be directly
+    supported by CURRENT APPROVED BUSINESS KNOWLEDGE.
+
+25. If a factual detail is not explicitly present in CURRENT APPROVED
+    BUSINESS KNOWLEDGE, omit that detail completely.
+
+26. Do not expand approved facts with outside explanations. Do not invent
+    teaching methods, labs, projects, production architectures,
+    troubleshooting activities, optimization activities, guarantees,
+    outcomes, or additional course features.
+
+27. Do not mention certification information unless the CURRENT customer
+    message specifically asks about certification, certificate, or a
+    certification examination.
+
+28. Never invent or name a specific AWS or Microsoft certification,
+    certification level, certification code, examination fee, examination
+    date, validity period, or passing score unless that exact information
+    exists in CURRENT APPROVED BUSINESS KNOWLEDGE.
+
+29. Before producing the final response, silently verify every business
+    factual claim against CURRENT APPROVED BUSINESS KNOWLEDGE and remove
+    every unsupported claim.
+
+30. Prefer a short, complete answer using only supported facts. Do not add
+    extra information merely to make the answer longer.
+
 Correct list format:
 
 Amazon EC2
@@ -1168,7 +1181,6 @@ CloudWatch
             ]
         )
 
-
         print(
             "\n------------------------------"
         )
@@ -1181,12 +1193,10 @@ CloudWatch
             "------------------------------"
         )
 
-
         print(
             f"TOTAL STORED HISTORY: "
             f"{len(history)}"
         )
-
 
         print(
             f"HISTORY SENT TO LLAMA: "
@@ -1248,11 +1258,9 @@ CloudWatch
             "------------------------------"
         )
 
-
         print(
             "TOTAL STORED HISTORY: 0"
         )
-
 
         print(
             "HISTORY SENT TO LLAMA: 0"
@@ -1271,7 +1279,6 @@ CloudWatch
         else None
     )
 
-
     current_budget = (
         qualification.get(
             "budget"
@@ -1280,7 +1287,6 @@ CloudWatch
         else None
     )
 
-
     current_timeline = (
         qualification.get(
             "timeline"
@@ -1288,7 +1294,6 @@ CloudWatch
         if qualification
         else None
     )
-
 
     current_requirement = (
         qualification.get(
@@ -1360,6 +1365,38 @@ FINAL RESPONSE RULES:
 15. Never ask for a qualification field that already has
     a value in CURRENT STRUCTURED QUALIFICATION.
 
+16. CLOSED-BOOK BUSINESS RULE:
+    For business-information questions, you are NOT allowed to use
+    pretrained knowledge, general AWS knowledge, general Azure knowledge,
+    or assumptions.
+
+17. Every factual business claim in the final response must be directly
+    supported by CURRENT APPROVED BUSINESS KNOWLEDGE.
+
+18. If a factual detail is not explicitly present in CURRENT APPROVED
+    BUSINESS KNOWLEDGE, omit that detail completely.
+
+19. Do not expand approved facts with outside explanations. Do not invent
+    teaching methods, labs, projects, production architectures,
+    troubleshooting activities, optimization activities, guarantees,
+    outcomes, or additional course features.
+
+20. Do not mention certification information unless the CURRENT customer
+    message specifically asks about certification, certificate, or a
+    certification examination.
+
+21. Never invent or name a specific AWS or Microsoft certification,
+    certification level, certification code, examination fee, examination
+    date, validity period, or passing score unless that exact information
+    exists in CURRENT APPROVED BUSINESS KNOWLEDGE.
+
+22. Before producing the final response, silently verify every business
+    factual claim against CURRENT APPROVED BUSINESS KNOWLEDGE and remove
+    every unsupported claim.
+
+23. Prefer a short, complete answer using only supported facts. Do not add
+    extra information merely to make the answer longer.
+
 Example:
 
 Amazon EC2
@@ -1392,7 +1429,6 @@ CloudWatch
         - prompt_build_start
     )
 
-
     print(
         f"PROMPT BUILD TIME: "
         f"{prompt_build_time:.3f} seconds"
@@ -1409,11 +1445,9 @@ CloudWatch
             "\n------------------------------"
         )
 
-
         print(
             "OLLAMA GENERATION"
         )
-
 
         print(
             "------------------------------"
@@ -1503,7 +1537,6 @@ CloudWatch
             f"{error}"
         )
 
-
         raise RuntimeError(
             "AI service is temporarily unavailable"
         ) from error
@@ -1520,7 +1553,6 @@ CloudWatch
             f"{type(error).__name__}: "
             f"{error}"
         )
-
 
         raise RuntimeError(
             "AI service is temporarily unavailable"

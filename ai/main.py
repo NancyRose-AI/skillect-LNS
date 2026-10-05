@@ -3,6 +3,7 @@ import time
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
 
 import models
 from database import SessionLocal
@@ -82,6 +83,20 @@ def chat(
     print(
         f"Message: {request.message}",
         flush=True
+    )
+
+    # =====================================================
+    # 1. CHECK LEAD
+    # =====================================================
+
+    db_start = time.perf_counter()
+
+    lead = (
+        db.query(models.Lead)
+        .filter(
+            models.Lead.id == request.lead_id
+        )
+        .first()
     )
 
 
@@ -572,4 +587,85 @@ def chat(
         "qualification": qualification,
         "ai_score": scoring["score"],
         "ai_temperature": scoring["status"]
+    }
+
+@app.get("/db-check")
+def db_check(db: Session = Depends(get_db)):
+
+    # ==========================================
+    # DATABASE CONNECTION INFORMATION
+    # ==========================================
+
+    result = db.execute(
+        text("""
+            SELECT
+                current_database(),
+                current_schema(),
+                current_user,
+                inet_server_addr(),
+                inet_server_port(),
+                current_setting('data_directory'),
+                current_setting('transaction_isolation'),
+                current_setting('transaction_read_only'),
+                pg_postmaster_start_time(),
+                pg_backend_pid()
+        """)
+    ).fetchone()
+
+    # ==========================================
+    # DIRECT SQL CHECK
+    # ==========================================
+
+    raw_count = db.execute(
+        text("SELECT COUNT(*) FROM public.leads")
+    ).scalar()
+
+    raw_ids = db.execute(
+        text("SELECT id FROM public.leads ORDER BY id")
+    ).scalars().all()
+
+    # ==========================================
+    # SQLALCHEMY ORM CHECK
+    # ==========================================
+
+    orm_count = db.query(models.Lead).count()
+
+    lead_44 = (
+        db.query(models.Lead)
+        .filter(models.Lead.id == 44)
+        .first()
+    )
+
+    # ==========================================
+    # RESPONSE
+    # ==========================================
+
+    return {
+        # PostgreSQL connection
+        "database": result[0],
+        "schema": result[1],
+        "user": result[2],
+        "server": str(result[3]),
+        "port": result[4],
+        "data_directory": result[5],
+
+        # Transaction
+        "isolation": result[6],
+        "read_only": result[7],
+
+        # PostgreSQL process
+        "postgres_started_at": str(result[8]),
+        "backend_pid": result[9],
+
+        # ORM check
+        "lead_count": orm_count,
+        "lead_44_exists": lead_44 is not None,
+
+        # Direct SQL check
+        "raw_lead_count": raw_count,
+        "raw_lead_ids": raw_ids,
+
+        # Python files
+        "models_file": models.__file__,
+        "database_file": __import__("database").__file__,
     }

@@ -75,13 +75,11 @@ class LeadCreate(BaseModel):
     @field_validator("name")
     @classmethod
     def clean_name(cls, value: str):
-
         return value.strip()
 
     @field_validator("source")
     @classmethod
     def clean_source(cls, value: str):
-
         return value.strip()
 
 
@@ -162,7 +160,10 @@ class LeadUpdate(BaseModel):
 
 class LeadResponse(BaseModel):
 
-    # Basic lead data
+    # -----------------------------------------------------
+    # BASIC LEAD DATA
+    # -----------------------------------------------------
+
     id: int
     name: str
     phone: str
@@ -174,14 +175,14 @@ class LeadResponse(BaseModel):
     follow_up_at: Optional[datetime] = None
 
     # -----------------------------------------------------
-    # BACKEND / CRM SCORING
+    # PERSON-1 BACKEND / CRM SCORING
     # -----------------------------------------------------
 
     lead_score: int = 0
     lead_temperature: str = "cold"
 
     # -----------------------------------------------------
-    # AI QUALIFICATION DATA
+    # PERSON-2 AI QUALIFICATION DATA
     # -----------------------------------------------------
 
     interest: Optional[str] = None
@@ -190,7 +191,7 @@ class LeadResponse(BaseModel):
     requirement: Optional[str] = None
 
     # -----------------------------------------------------
-    # AI SCORING
+    # PERSON-2 AI SCORING
     # -----------------------------------------------------
 
     ai_score: int = 0
@@ -292,6 +293,7 @@ class ConversationUpdate(BaseModel):
         max_length=2000,
     )
 
+
 # =========================================================
 # LEAD LIST RESPONSE
 # =========================================================
@@ -303,6 +305,7 @@ class LeadListResponse(BaseModel):
     limit: int
     leads: list[LeadResponse]
 
+
 # =========================================================
 # HOT LEADS RESPONSE
 # =========================================================
@@ -310,6 +313,7 @@ class LeadListResponse(BaseModel):
 class HotLeadsResponse(BaseModel):
     count: int
     leads: list[LeadResponse]
+
 
 # =========================================================
 # FOLLOW-UP LEADS RESPONSE
@@ -319,6 +323,7 @@ class FollowUpLeadsResponse(BaseModel):
     count: int
     leads: list[LeadResponse]
 
+
 # =========================================================
 # DASHBOARD RECENT RESPONSE
 # =========================================================
@@ -326,6 +331,7 @@ class FollowUpLeadsResponse(BaseModel):
 class DashboardRecentResponse(BaseModel):
     recent_leads: list[LeadResponse]
     recent_activities: list[LeadActivityResponse]
+
 
 # =========================================================
 # LEAD FULL DETAILS RESPONSE
@@ -335,6 +341,7 @@ class LeadFullDetailsResponse(BaseModel):
     lead: LeadResponse
     activities: list[LeadActivityResponse]
     conversations: list[ConversationResponse]
+
 
 # =========================================================
 # CONVERSATION STATS RESPONSE
@@ -346,6 +353,7 @@ class ConversationStatsResponse(BaseModel):
     lead_messages: int
     ai_messages: int
 
+
 # =========================================================
 # DELETE CONVERSATION RESPONSE
 # =========================================================
@@ -354,12 +362,14 @@ class DeleteConversationResponse(BaseModel):
     message: str
     conversation_id: int
 
+
 # =========================================================
 # DELETE LEAD RESPONSE
 # =========================================================
 
 class DeleteLeadResponse(BaseModel):
     message: str
+
 
 # =========================================================
 # DASHBOARD SUMMARY RESPONSE
@@ -371,6 +381,7 @@ class DashboardSummaryResponse(BaseModel):
     qualified_leads: int
     converted_leads: int
     todays_followups: int
+
 
 # =========================================================
 # LEAD STATS RESPONSE
