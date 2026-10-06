@@ -8,8 +8,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_, text
 
 from datetime import (
     datetime,
@@ -1615,3 +1614,62 @@ def search_conversations(
         "conversations": conversations
     }
 
+@app.get("/db-check")
+def db_check(db: Session = Depends(get_db)):
+
+    result = db.execute(
+        text("""
+            SELECT
+                current_database(),
+                current_schema(),
+                current_user,
+                inet_server_addr(),
+                inet_server_port(),
+                current_setting('data_directory'),
+                current_setting('transaction_isolation'),
+                current_setting('transaction_read_only'),
+                pg_postmaster_start_time(),
+                pg_backend_pid()
+        """)
+    ).fetchone()
+
+    raw_count = db.execute(
+        text("SELECT COUNT(*) FROM public.leads")
+    ).scalar()
+
+    raw_ids = db.execute(
+        text("SELECT id FROM public.leads ORDER BY id")
+    ).scalars().all()
+
+    lead_44 = (
+        db.query(models.Lead)
+        .filter(models.Lead.id == 44)
+        .first()
+    )
+
+    return {
+        "database": result[0],
+        "schema": result[1],
+        "user": result[2],
+        "server": str(result[3]),
+        "port": result[4],
+        "data_directory": result[5],
+
+        "isolation": result[6],
+        "read_only": result[7],
+
+        "postgres_started_at": str(result[8]),
+        "backend_pid": result[9],
+
+        "lead_table": models.Lead.__table__.name,
+        "lead_schema": models.Lead.__table__.schema,
+
+        "lead_count": db.query(models.Lead).count(),
+        "lead_44_exists": lead_44 is not None,
+
+        "raw_lead_count": raw_count,
+        "raw_lead_ids": raw_ids,
+
+        "models_file": models.__file__,
+        "database_file": __import__("database").__file__,
+    }

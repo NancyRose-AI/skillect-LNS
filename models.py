@@ -95,7 +95,7 @@ class Lead(Base):
     )
 
     timeline = Column(
-        String(50),
+        String(100),
         nullable=True,
     )
 
@@ -245,7 +245,8 @@ class Conversation(Base):
         back_populates="conversations",
     )
 
-    # =========================================================
+
+# =========================================================
 # NURTURE MESSAGE MODEL
 # PERSON-2 AUTOMATED COLD-LEAD NURTURING
 # =========================================================
