@@ -46,7 +46,8 @@ Rules:
    knowledge provided in the BUSINESS KNOWLEDGE section.
 
 6. Never invent business information, prices, course details,
-   discounts, guarantees, services, or policies.
+   discounts, guarantees, services, policies, durations,
+   certifications, placement guarantees, or offers.
 
 7. Do not pressure the customer.
 
@@ -98,7 +99,27 @@ Rules:
     the next missing qualification field in this order:
     interest, budget, timeline, requirement.
 
-Example:
+24. NEVER create a price, discount, offer, duration, course,
+    certification, placement promise, refund policy, schedule,
+    training feature, or service unless that exact information
+    appears in CURRENT APPROVED BUSINESS KNOWLEDGE.
+
+25. If CURRENT APPROVED BUSINESS KNOWLEDGE does not support a business
+    claim, do not make that claim.
+
+26. Previous assistant messages are NOT approved business knowledge.
+    Never repeat a business fact merely because an earlier assistant
+    message said it.
+
+27. Conversation history may be used to understand context only.
+    It must never be treated as a source of business facts.
+
+28. CURRENT STRUCTURED QUALIFICATION may be used only for customer
+    information such as interest, budget, timeline, and requirement.
+    It is not a source for business prices, offers, discounts,
+    course details, or policies.
+
+Correct list format:
 
 Amazon EC2
 Amazon S3
@@ -108,12 +129,6 @@ EFS
 RDS
 Elastic Load Balancer
 CloudWatch
-
-Do NOT write:
-
-* Amazon EC2
-* Amazon S3
-* IAM
 """
 
 
@@ -131,7 +146,7 @@ def clean_response_format(text: str) -> str:
     for line in text.splitlines():
 
         cleaned_line = re.sub(
-            r"^\s*[*\-•]\s+",
+            r"^\s*[\*\-•]\s+",
             "",
             line
         )
@@ -151,6 +166,20 @@ def clean_response_format(text: str) -> str:
 
 
 # =========================
+# HELPER - NORMALIZE TEXT
+# =========================
+
+def normalize_text(text: str) -> str:
+
+    if not text:
+        return ""
+
+    return " ".join(
+        text.lower().strip().split()
+    )
+
+
+# =========================
 # CERTIFICATION GUARD
 # =========================
 
@@ -158,9 +187,7 @@ def get_certification_response(
     prompt: str
 ):
 
-    prompt_lower = (
-        prompt.lower().strip()
-    )
+    prompt_lower = normalize_text(prompt)
 
     certification_words = [
         "certification",
@@ -181,11 +208,7 @@ def get_certification_response(
     if not is_certification_message:
         return None
 
-
-    # =========================
     # AWS
-    # =========================
-
     if (
         "aws" in prompt_lower
         or "amazon" in prompt_lower
@@ -200,11 +223,7 @@ def get_certification_response(
             "issue the official AWS certification."
         )
 
-
-    # =========================
     # AZURE
-    # =========================
-
     if (
         "azure" in prompt_lower
         or "microsoft" in prompt_lower
@@ -220,11 +239,7 @@ def get_certification_response(
             "certification."
         )
 
-
-    # =========================
     # GENERAL
-    # =========================
-
     return (
         "Skillect provides training and examination preparation "
         "support for relevant AWS and Microsoft Azure certification "
@@ -243,9 +258,7 @@ def get_contact_availability_response(
     prompt: str
 ):
 
-    prompt_lower = (
-        prompt.lower().strip()
-    )
+    prompt_lower = normalize_text(prompt)
 
     contact_phrases = [
         "contact me",
@@ -269,14 +282,12 @@ def get_contact_availability_response(
     if not is_contact_availability:
         return None
 
-
     if "this week" in prompt_lower:
 
         return (
             "Sure. You're available to be contacted this week. "
             "Please provide your preferred day and time."
         )
-
 
     if "next week" in prompt_lower:
 
@@ -285,14 +296,12 @@ def get_contact_availability_response(
             "Please provide your preferred day and time."
         )
 
-
     if "tomorrow" in prompt_lower:
 
         return (
             "Sure. You're available to be contacted tomorrow. "
             "Please provide your preferred time."
         )
-
 
     return (
         "Sure. I've noted your availability. "
@@ -308,9 +317,7 @@ def get_explicit_interest_response(
     prompt: str
 ):
 
-    prompt_lower = (
-        prompt.lower().strip()
-    )
+    prompt_lower = normalize_text(prompt)
 
     interest_phrases = [
         "i am interested in",
@@ -320,6 +327,11 @@ def get_explicit_interest_response(
         "actually i am interested in",
         "actually i'm interested in",
         "actually im interested in",
+        "i want to learn",
+        "i want to study",
+        "i want to join",
+        "i would like to learn",
+        "i would like to join",
     ]
 
     is_interest_statement = any(
@@ -329,7 +341,6 @@ def get_explicit_interest_response(
 
     if not is_interest_statement:
         return None
-
 
     if (
         "aws" in prompt_lower
@@ -341,7 +352,6 @@ def get_explicit_interest_response(
             "AWS Cloud Engineering."
         )
 
-
     if "azure" in prompt_lower:
 
         return (
@@ -349,6 +359,18 @@ def get_explicit_interest_response(
             "Azure Cloud Engineering."
         )
 
+    if "cloud" in prompt_lower:
+
+        return (
+            "Great. You're interested in "
+            "Cloud Computing."
+        )
+
+    if "python" in prompt_lower:
+
+        return (
+            "Great. You're interested in Python."
+        )
 
     return None
 
@@ -362,10 +384,7 @@ def get_requirement_response(
     qualification=None
 ):
 
-    prompt_lower = (
-        prompt.lower().strip()
-    )
-
+    prompt_lower = normalize_text(prompt)
 
     # =========================
     # CAREER SWITCH
@@ -392,7 +411,6 @@ def get_requirement_response(
             "a career switch."
         )
 
-
     # =========================
     # SKILL DEVELOPMENT
     # =========================
@@ -415,21 +433,54 @@ def get_requirement_response(
             "your skills."
         )
 
-
     # =========================
     # JOB
+    # =========================
+    #
+    # IMPORTANT:
+    # These phrases match qualification.py.
+    # This prevents qualification statements
+    # from unnecessarily reaching Ollama.
     # =========================
 
     job_phrases = [
         "i need a job",
         "i want a job",
+        "i want to get a job",
+        "i need to get a job",
+        "i would like to get a job",
+        "i'm trying to get a job",
+        "im trying to get a job",
+        "i am trying to get a job",
+        "my goal is to get a job",
+        "my main goal is to get a job",
+        "goal is to get a job",
+        "get a job",
+        "getting a job",
+        "find a job",
+        "finding a job",
         "i am looking for a job",
         "i'm looking for a job",
         "im looking for a job",
+        "looking for a job",
         "i need this for a job",
         "i want this for a job",
         "i need this course for a job",
         "i want this course for a job",
+        "job placement",
+        "placement assistance",
+        "placement opportunity",
+        "job opportunity",
+        "job opportunities",
+        "employment",
+        "employment opportunity",
+        "employment opportunities",
+        "career opportunity",
+        "career opportunities",
+        "career growth",
+        "build my career",
+        "start my career",
+        "career goal",
     ]
 
     if any(
@@ -441,7 +492,6 @@ def get_requirement_response(
             "Got it. Your current requirement "
             "is a job."
         )
-
 
     return None
 
@@ -458,9 +508,7 @@ def get_qualification_statement_response(
     if not qualification:
         return None
 
-    prompt_lower = (
-        prompt.lower().strip()
-    )
+    prompt_lower = normalize_text(prompt)
 
     interest = qualification.get(
         "interest"
@@ -477,7 +525,6 @@ def get_qualification_statement_response(
     requirement = qualification.get(
         "requirement"
     )
-
 
     # =========================
     # BUDGET STATEMENT
@@ -507,9 +554,6 @@ def get_qualification_statement_response(
             f"₹{budget:,}."
         )
 
-
-        # Interest missing
-
         if not interest:
 
             return (
@@ -517,9 +561,6 @@ def get_qualification_statement_response(
                 "What is your interest in "
                 "cloud engineering?"
             )
-
-
-        # Timeline missing
 
         if not timeline:
 
@@ -529,9 +570,6 @@ def get_qualification_statement_response(
                 "start the course?"
             )
 
-
-        # Requirement missing
-
         if not requirement:
 
             return (
@@ -540,9 +578,7 @@ def get_qualification_statement_response(
                 "taking the course?"
             )
 
-
         return acknowledgement
-
 
     # =========================
     # TIMELINE STATEMENT
@@ -558,6 +594,7 @@ def get_qualification_statement_response(
         "i need to start",
         "start immediately",
         "start now",
+        "right now",
         "this month",
         "next month",
         "as soon as possible",
@@ -579,9 +616,6 @@ def get_qualification_statement_response(
             f"{timeline.lower()}."
         )
 
-
-        # Interest missing
-
         if not interest:
 
             return (
@@ -589,9 +623,6 @@ def get_qualification_statement_response(
                 "What is your interest in "
                 "cloud engineering?"
             )
-
-
-        # Budget missing
 
         if budget is None:
 
@@ -601,9 +632,6 @@ def get_qualification_statement_response(
                 "the course?"
             )
 
-
-        # Requirement missing
-
         if not requirement:
 
             return (
@@ -612,9 +640,7 @@ def get_qualification_statement_response(
                 "taking the course?"
             )
 
-
         return acknowledgement
-
 
     return None
 
@@ -631,10 +657,7 @@ def get_qualification_memory_response(
     if not qualification:
         return None
 
-    prompt_lower = (
-        prompt.lower().strip()
-    )
-
+    prompt_lower = normalize_text(prompt)
 
     # =========================
     # CURRENT INTEREST
@@ -663,14 +686,13 @@ def get_qualification_memory_response(
 
             return (
                 f"Your current interest is "
-                f"{interest} Cloud Engineering."
+                f"{interest}."
             )
 
         return (
             "You haven't provided your current "
             "course interest yet."
         )
-
 
     # =========================
     # CURRENT BUDGET
@@ -704,7 +726,6 @@ def get_qualification_memory_response(
             "You haven't provided your budget yet."
         )
 
-
     # =========================
     # CURRENT TIMELINE
     # =========================
@@ -737,7 +758,6 @@ def get_qualification_memory_response(
         return (
             "You haven't provided your timeline yet."
         )
-
 
     # =========================
     # CURRENT REQUIREMENT
@@ -773,8 +793,93 @@ def get_qualification_memory_response(
             "You haven't provided your requirement yet."
         )
 
-
     return None
+
+
+# =========================
+# BUILD RAG QUERY
+# =========================
+
+def build_retrieval_query(
+    prompt: str,
+    history=None
+) -> str:
+
+    prompt_lower = normalize_text(prompt)
+
+    current_mentions_aws = (
+        "aws" in prompt_lower
+        or "amazon" in prompt_lower
+    )
+
+    current_mentions_azure = (
+        "azure" in prompt_lower
+    )
+
+    current_has_explicit_provider = (
+        current_mentions_aws
+        or current_mentions_azure
+    )
+
+    # If the customer explicitly names a provider,
+    # retrieve only for the current request.
+    if current_has_explicit_provider:
+        return prompt
+
+    retrieval_parts = []
+
+    if history:
+
+        recent_user_messages = [
+            item.message
+            for item in history
+            if item.role in (
+                "lead",
+                "user"
+            )
+        ][-3:]
+
+        retrieval_parts.extend(
+            recent_user_messages
+        )
+
+    retrieval_parts.append(
+        prompt
+    )
+
+    return " ".join(
+        retrieval_parts
+    )
+
+
+# =========================
+# BUILD QUALIFICATION CONTEXT
+# =========================
+
+def build_qualification_context(
+    qualification=None
+) -> str:
+
+    if not qualification:
+
+        return (
+            "No structured qualification data "
+            "is currently available."
+        )
+
+    return f"""
+Interest:
+{qualification.get("interest")}
+
+Budget:
+{qualification.get("budget")}
+
+Timeline:
+{qualification.get("timeline")}
+
+Requirement:
+{qualification.get("requirement")}
+""".strip()
 
 
 # =========================
@@ -787,10 +892,7 @@ def ask_ai(
     qualification=None
 ) -> str:
 
-    total_llm_start = (
-        time.perf_counter()
-    )
-
+    total_llm_start = time.perf_counter()
 
     # =========================
     # 1. CERTIFICATION GUARD
@@ -808,7 +910,6 @@ def ask_ai(
             certification_response
         )
 
-
     # =========================
     # 2. CONTACT GUARD
     # =========================
@@ -824,7 +925,6 @@ def ask_ai(
         return clean_response_format(
             contact_response
         )
-
 
     # =========================
     # 3. EXPLICIT INTEREST GUARD
@@ -842,9 +942,18 @@ def ask_ai(
             interest_response
         )
 
-
     # =========================
     # 4. REQUIREMENT GUARD
+    # =========================
+    #
+    # IMPORTANT:
+    # Run this before Ollama.
+    #
+    # Example:
+    # "My main goal is to get a job"
+    #
+    # will be handled here instead of allowing
+    # the LLM to invent course/discount details.
     # =========================
 
     requirement_response = (
@@ -859,7 +968,6 @@ def ask_ai(
         return clean_response_format(
             requirement_response
         )
-
 
     # =========================
     # 5. QUALIFICATION STATEMENT
@@ -878,7 +986,6 @@ def ask_ai(
             qualification_statement_response
         )
 
-
     # =========================
     # 6. QUALIFICATION MEMORY
     # =========================
@@ -896,69 +1003,20 @@ def ask_ai(
             qualification_response
         )
 
-
     # =========================
     # 7. BUILD RAG QUERY
     # =========================
 
-    retrieval_parts = []
-
-    prompt_lower = (
-        prompt.lower()
+    retrieval_query = build_retrieval_query(
+        prompt,
+        history
     )
-
-    current_mentions_aws = (
-        "aws" in prompt_lower
-        or "amazon" in prompt_lower
-    )
-
-    current_mentions_azure = (
-        "azure" in prompt_lower
-    )
-
-    current_has_explicit_provider = (
-        current_mentions_aws
-        or current_mentions_azure
-    )
-
-
-    if current_has_explicit_provider:
-
-        retrieval_query = prompt
-
-    else:
-
-        if history:
-
-            recent_user_messages = [
-                item.message
-                for item in history
-                if item.role in (
-                    "lead",
-                    "user"
-                )
-            ][-3:]
-
-            retrieval_parts.extend(
-                recent_user_messages
-            )
-
-        retrieval_parts.append(
-            prompt
-        )
-
-        retrieval_query = " ".join(
-            retrieval_parts
-        )
-
 
     # =========================
     # 8. RETRIEVE KNOWLEDGE
     # =========================
 
-    rag_start = (
-        time.perf_counter()
-    )
+    rag_start = time.perf_counter()
 
     business_knowledge = (
         retrieve_relevant_knowledge(
@@ -976,6 +1034,8 @@ def ask_ai(
         f"{rag_time:.3f} seconds"
     )
 
+    if business_knowledge is None:
+        business_knowledge = ""
 
     knowledge_found = bool(
         business_knowledge.strip()
@@ -988,33 +1048,15 @@ def ask_ai(
             "BUSINESS INFORMATION FOUND."
         )
 
-
     # =========================
     # 9. BUILD QUALIFICATION CONTEXT
     # =========================
 
-    if qualification:
-
-        qualification_context = f"""
-Interest:
-{qualification.get("interest")}
-
-Budget:
-{qualification.get("budget")}
-
-Timeline:
-{qualification.get("timeline")}
-
-Requirement:
-{qualification.get("requirement")}
-"""
-
-    else:
-
-        qualification_context = """
-No structured qualification data is currently available.
-"""
-
+    qualification_context = (
+        build_qualification_context(
+            qualification
+        )
+    )
 
     # =========================
     # 10. BUILD SYSTEM CONTEXT
@@ -1045,117 +1087,161 @@ END OF APPROVED BUSINESS KNOWLEDGE
 
 STRICT GROUNDING RULES:
 
-1. CURRENT APPROVED BUSINESS KNOWLEDGE is the authoritative
+1. CURRENT APPROVED BUSINESS KNOWLEDGE is the only authoritative
    source for business facts.
 
-2. CURRENT STRUCTURED QUALIFICATION is the authoritative
-   source for the customer's:
+2. CURRENT STRUCTURED QUALIFICATION is the authoritative source
+   only for the customer's:
    interest
    budget
    timeline
    requirement
 
-3. If history conflicts with structured qualification,
-   use structured qualification.
+3. If conversation history conflicts with CURRENT STRUCTURED
+   QUALIFICATION, use CURRENT STRUCTURED QUALIFICATION.
 
-4. For a business-information question, answer ONLY the
-   information specifically requested.
+4. Conversation history is NOT an approved source of business facts.
 
-5. Do not substitute another available business fact when
-   the requested fact is unavailable.
+5. Previous assistant responses are NOT an approved source of
+   business facts.
 
-6. If requested information exists in approved knowledge,
-   answer directly.
+6. Never repeat a business claim simply because an earlier assistant
+   response said it.
 
-7. If all specifically requested business information is
-   unavailable, answer exactly:
+7. For a business-information question, answer ONLY the information
+   specifically requested.
 
-   "{BUSINESS_FALLBACK}"
+8. Do not substitute another available business fact when the
+   requested fact is unavailable.
 
-8. Never invent business facts.
+9. If the specifically requested information exists in CURRENT
+   APPROVED BUSINESS KNOWLEDGE, answer directly.
 
-9. Qualification statements are not business-information
-   questions.
+10. If all specifically requested business information is unavailable,
+    answer exactly:
 
-10. A qualification statement should be acknowledged
-    naturally.
+    "{BUSINESS_FALLBACK}"
 
-11. Do not change qualification merely because a customer
-    asks a factual question about AWS or Azure.
+11. Never invent business facts.
 
-12. If the CURRENT message explicitly mentions AWS, use
-    AWS business knowledge for that business question.
+12. Qualification statements are not business-information questions.
 
-13. If the CURRENT message explicitly mentions Azure, use
-    Azure business knowledge for that business question.
+13. A qualification statement should be acknowledged naturally.
 
-14. A saved interest must not override a provider explicitly
-    named in the current business question.
+14. Do not change qualification merely because a customer asks a
+    factual question about AWS or Azure.
 
-15. Do not repeat unrelated conversation history.
+15. If the CURRENT message explicitly mentions AWS, use only relevant
+    AWS information from CURRENT APPROVED BUSINESS KNOWLEDGE.
 
-16. Do not mention information the customer did not ask for.
+16. If the CURRENT message explicitly mentions Azure, use only relevant
+    Azure information from CURRENT APPROVED BUSINESS KNOWLEDGE.
 
-17. Do not add unnecessary follow-up questions.
+17. A saved interest must not override a provider explicitly named in
+    the current business question.
 
-18. After answering a business-information question, STOP.
+18. Do not repeat unrelated conversation history.
 
-19. Keep the final response concise and direct.
+19. Do not mention information the customer did not ask for.
 
-20. Do not use Markdown bullet symbols such as *, -, or •
+20. Do not add unnecessary follow-up questions.
+
+21. After answering a business-information question, STOP.
+
+22. Keep the final response concise and direct.
+
+23. Do not use Markdown bullet symbols such as *, -, or •
     in the final response.
 
-21. If multiple services, topics, courses, or other items
-    must be listed, put each item on a separate line with
-    no symbol before it.
+24. If multiple items must be listed, put each item on a separate
+    line without a bullet symbol.
 
-22. Never ask for interest, budget, timeline, or requirement
-    when that field already has a value in CURRENT STRUCTURED
-    QUALIFICATION.
+25. Never ask for interest, budget, timeline, or requirement when
+    that field already has a value in CURRENT STRUCTURED QUALIFICATION.
 
-23. CLOSED-BOOK BUSINESS RULE:
-    For business-information questions, do NOT use pretrained knowledge,
-    general AWS knowledge, general Azure knowledge, or assumptions.
+26. CLOSED-BOOK BUSINESS RULE:
 
-24. Every factual business claim in the final response must be directly
-    supported by CURRENT APPROVED BUSINESS KNOWLEDGE.
+    For business-information questions, do NOT use pretrained
+    knowledge, general AWS knowledge, general Azure knowledge,
+    assumptions, or information remembered from previous assistant
+    responses.
 
-25. If a factual detail is not explicitly present in CURRENT APPROVED
+27. Every factual business claim in the final response must be
+    directly supported by CURRENT APPROVED BUSINESS KNOWLEDGE.
+
+28. If a factual detail is not explicitly present in CURRENT APPROVED
     BUSINESS KNOWLEDGE, omit that detail completely.
 
-26. Do not expand approved facts with outside explanations. Do not invent
-    teaching methods, labs, projects, production architectures,
-    troubleshooting activities, optimization activities, guarantees,
-    outcomes, or additional course features.
+29. NEVER invent:
+    prices
+    discounts
+    special offers
+    course duration
+    course availability
+    certification names
+    examination fees
+    guarantees
+    placement guarantees
+    refund policies
+    schedules
+    services
+    course features
 
-27. Do not mention certification information unless the CURRENT customer
-    message specifically asks about certification, certificate, or a
-    certification examination.
+30. Do not expand approved facts with outside explanations.
 
-28. Never invent or name a specific AWS or Microsoft certification,
-    certification level, certification code, examination fee, examination
-    date, validity period, or passing score unless that exact information
-    exists in CURRENT APPROVED BUSINESS KNOWLEDGE.
+31. Do not invent teaching methods, labs, projects,
+    production architectures, troubleshooting activities,
+    optimization activities, guarantees, outcomes,
+    or additional course features.
 
-29. Before producing the final response, silently verify every business
-    factual claim against CURRENT APPROVED BUSINESS KNOWLEDGE and remove
-    every unsupported claim.
+32. Do not mention certification information unless the CURRENT
+    customer message specifically asks about certification,
+    certificate, or a certification examination.
 
-30. Prefer a short, complete answer using only supported facts. Do not add
-    extra information merely to make the answer longer.
+33. Never invent or name a specific AWS or Microsoft certification,
+    certification level, certification code, examination fee,
+    examination date, validity period, or passing score unless that
+    exact information exists in CURRENT APPROVED BUSINESS KNOWLEDGE.
 
-Correct list format:
+34. Before producing the final response, silently inspect every
+    business factual claim.
 
-Amazon EC2
-Amazon S3
-IAM
-VPC
-EFS
-RDS
-Elastic Load Balancer
-CloudWatch
+35. For every business factual claim, ask internally:
+    "Can this exact fact be supported by CURRENT APPROVED
+    BUSINESS KNOWLEDGE?"
+
+36. If the answer is no, REMOVE that claim.
+
+37. Never infer a discount from the customer's budget.
+
+38. Never infer a course recommendation merely from the customer's
+    qualification.
+
+39. Never say that a discounted course is available unless CURRENT
+    APPROVED BUSINESS KNOWLEDGE explicitly says so.
+
+40. Never say that a discount is unavailable for another course unless
+    CURRENT APPROVED BUSINESS KNOWLEDGE explicitly says so.
+
+41. Never invent an Azure course because Azure appears somewhere in
+    conversation history.
+
+42. Never invent an AWS course because AWS appears somewhere in
+    conversation history.
+
+43. Customer budget means only the amount the customer can spend.
+    It does NOT mean that a business course exists at that price.
+
+44. Customer requirement means only the customer's goal.
+    It does NOT prove that the business guarantees that outcome.
+
+45. If the customer says they want a job, acknowledge that goal.
+    Do not promise employment or placement.
+
+46. Prefer a short complete answer using supported information.
+
+47. Do not add extra information merely to make the answer longer.
 """
-
 
     # =========================
     # 11. START MESSAGES
@@ -1167,7 +1253,6 @@ CloudWatch
             "content": system_content
         }
     ]
-
 
     # =========================
     # 12. ADD LIMITED HISTORY
@@ -1203,38 +1288,26 @@ CloudWatch
             f"{len(recent_history)}"
         )
 
-
         for item in recent_history:
 
-
-            # =========================
-            # DATABASE ROLE → OLLAMA ROLE
-            # =========================
+            # DATABASE ROLE -> OLLAMA ROLE
 
             if item.role in (
                 "lead",
                 "user"
             ):
 
-                ollama_role = (
-                    "user"
-                )
-
+                ollama_role = "user"
 
             elif item.role in (
                 "ai",
                 "assistant"
             ):
 
-                ollama_role = (
-                    "assistant"
-                )
-
+                ollama_role = "assistant"
 
             else:
-
                 continue
-
 
             messages.append(
                 {
@@ -1242,7 +1315,6 @@ CloudWatch
                     "content": item.message
                 }
             )
-
 
     else:
 
@@ -1266,9 +1338,8 @@ CloudWatch
             "HISTORY SENT TO LLAMA: 0"
         )
 
-
     # =========================
-    # 13. REINFORCE CURRENT REQUEST
+    # 13. CURRENT QUALIFICATION
     # =========================
 
     current_interest = (
@@ -1303,6 +1374,9 @@ CloudWatch
         else None
     )
 
+    # =========================
+    # 14. REINFORCE CURRENT REQUEST
+    # =========================
 
     messages.append(
         {
@@ -1315,105 +1389,95 @@ CURRENT CUSTOMER MESSAGE:
 CURRENT STRUCTURED QUALIFICATION:
 
 Interest: {current_interest}
-
 Budget: {current_budget}
-
 Timeline: {current_timeline}
-
 Requirement: {current_requirement}
+
+CURRENT APPROVED BUSINESS KNOWLEDGE:
+
+{business_knowledge}
 
 FINAL RESPONSE RULES:
 
 1. Answer only the CURRENT customer message.
 
-2. Use only approved knowledge for business facts.
+2. Use CURRENT APPROVED BUSINESS KNOWLEDGE as the ONLY source
+   for business facts.
 
-3. If the specifically requested business fact is unavailable,
+3. Previous assistant messages are not business knowledge.
+
+4. Conversation history is context only.
+
+5. Never copy an unsupported business claim from conversation history.
+
+6. If the specifically requested business fact is unavailable,
    do not replace it with other available facts.
 
-4. If the requested business information is unavailable,
-   reply exactly:
+7. If the requested business information is unavailable, reply exactly:
 
    "{BUSINESS_FALLBACK}"
 
-5. If AWS is explicitly named in the current question,
-   use AWS information.
+8. If AWS is explicitly named in the current question,
+   use only approved AWS information.
 
-6. If Azure is explicitly named in the current question,
-   use Azure information.
+9. If Azure is explicitly named in the current question,
+   use only approved Azure information.
 
-7. The customer's saved qualification interest does not
-   override the provider named in the current question.
+10. The customer's saved qualification interest does not override
+    the provider named in the current question.
 
-8. Asking a factual question about AWS or Azure does not
-   automatically change the saved interest.
+11. Asking a factual question about AWS or Azure does not
+    automatically change the saved interest.
 
-9. Do not repeat unrelated history.
+12. Do not repeat unrelated history.
 
-10. Do not invent information.
+13. Do not invent information.
 
-11. Do not add unnecessary follow-up questions.
+14. Do not add unnecessary follow-up questions.
 
-12. Keep the response concise.
+15. Keep the response concise.
 
-13. Do not use *, -, •, or any Markdown bullet symbol
-    in the final response.
+16. Do not use *, -, •, or any Markdown bullet symbol.
 
-14. When listing multiple items, put each item on its
-    own separate line without a bullet symbol.
+17. When listing multiple items, put each item on its own
+    separate line without a bullet symbol.
 
-15. Never ask for a qualification field that already has
+18. Never ask for a qualification field that already has
     a value in CURRENT STRUCTURED QUALIFICATION.
 
-16. CLOSED-BOOK BUSINESS RULE:
-    For business-information questions, you are NOT allowed to use
-    pretrained knowledge, general AWS knowledge, general Azure knowledge,
-    or assumptions.
+19. Never invent prices.
 
-17. Every factual business claim in the final response must be directly
-    supported by CURRENT APPROVED BUSINESS KNOWLEDGE.
+20. Never invent discounts.
 
-18. If a factual detail is not explicitly present in CURRENT APPROVED
-    BUSINESS KNOWLEDGE, omit that detail completely.
+21. Never invent course durations.
 
-19. Do not expand approved facts with outside explanations. Do not invent
-    teaching methods, labs, projects, production architectures,
-    troubleshooting activities, optimization activities, guarantees,
-    outcomes, or additional course features.
+22. Never invent course availability.
 
-20. Do not mention certification information unless the CURRENT customer
-    message specifically asks about certification, certificate, or a
-    certification examination.
+23. Never invent placement guarantees.
 
-21. Never invent or name a specific AWS or Microsoft certification,
-    certification level, certification code, examination fee, examination
-    date, validity period, or passing score unless that exact information
-    exists in CURRENT APPROVED BUSINESS KNOWLEDGE.
+24. Never invent offers or promotions.
 
-22. Before producing the final response, silently verify every business
-    factual claim against CURRENT APPROVED BUSINESS KNOWLEDGE and remove
-    every unsupported claim.
+25. Never infer business facts from the customer's budget.
 
-23. Prefer a short, complete answer using only supported facts. Do not add
-    extra information merely to make the answer longer.
+26. Never infer business facts from the customer's requirement.
 
-Example:
+27. If the customer wants a job, that means only that their
+    requirement is Job. It does not mean placement is guaranteed.
 
-Amazon EC2
-Amazon S3
-IAM
-VPC
-EFS
-RDS
-Elastic Load Balancer
-CloudWatch
+28. Every business factual claim must be supported by the
+    CURRENT APPROVED BUSINESS KNOWLEDGE above.
+
+29. If a detail is not supported by CURRENT APPROVED BUSINESS
+    KNOWLEDGE, remove it.
+
+30. Before answering, silently check every business factual
+    statement against CURRENT APPROVED BUSINESS KNOWLEDGE.
 """
         }
     )
 
-
     # =========================
-    # 14. ADD CURRENT MESSAGE
+    # 15. ADD CURRENT MESSAGE
     # =========================
 
     messages.append(
@@ -1422,7 +1486,6 @@ CloudWatch
             "content": prompt
         }
     )
-
 
     prompt_build_time = (
         time.perf_counter()
@@ -1434,9 +1497,8 @@ CloudWatch
         f"{prompt_build_time:.3f} seconds"
     )
 
-
     # =========================
-    # 15. GENERATE AI RESPONSE
+    # 16. GENERATE AI RESPONSE
     # =========================
 
     try:
@@ -1453,11 +1515,9 @@ CloudWatch
             "------------------------------"
         )
 
-
         ollama_start = (
             time.perf_counter()
         )
-
 
         response = ollama.chat(
             model="llama3.2:3b",
@@ -1468,18 +1528,15 @@ CloudWatch
             }
         )
 
-
         ollama_time = (
             time.perf_counter()
             - ollama_start
         )
 
-
         print(
             f"OLLAMA CHAT TIME: "
             f"{ollama_time:.3f} seconds"
         )
-
 
         ai_message = (
             response[
@@ -1489,7 +1546,6 @@ CloudWatch
             ]
         )
 
-
         if (
             not ai_message
             or not ai_message.strip()
@@ -1498,7 +1554,6 @@ CloudWatch
             raise RuntimeError(
                 "Ollama returned an empty response"
             )
-
 
         # =========================
         # CLEAN RESPONSE FORMAT
@@ -1510,21 +1565,17 @@ CloudWatch
             )
         )
 
-
         total_llm_time = (
             time.perf_counter()
             - total_llm_start
         )
-
 
         print(
             f"TOTAL LLM TIME: "
             f"{total_llm_time:.3f} seconds"
         )
 
-
         return ai_message
-
 
     # =========================
     # OLLAMA CONNECTION FAILURE
@@ -1540,7 +1591,6 @@ CloudWatch
         raise RuntimeError(
             "AI service is temporarily unavailable"
         ) from error
-
 
     # =========================
     # OTHER OLLAMA FAILURE

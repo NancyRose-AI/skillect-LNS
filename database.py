@@ -30,12 +30,23 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME")
 
 
-if not all([DB_USERNAME, DB_PASSWORD, DB_NAME]):
-    raise ValueError(
-        "Database environment variables are missing. "
-        "Check DB_USERNAME, DB_PASSWORD and DB_NAME in your .env file."
-    )
+# =========================================================
+# VALIDATION
+# =========================================================
 
+if not DB_USERNAME:
+    raise ValueError("DB_USERNAME is missing from .env")
+
+if not DB_PASSWORD:
+    raise ValueError("DB_PASSWORD is missing from .env")
+
+if not DB_NAME:
+    raise ValueError("DB_NAME is missing from .env")
+
+
+# =========================================================
+# DATABASE URL
+# =========================================================
 
 DATABASE_URL = (
     f"postgresql://{DB_USERNAME}:{DB_PASSWORD}"
