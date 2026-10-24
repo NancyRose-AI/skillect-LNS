@@ -16,7 +16,9 @@ from ai.qualification import qualify_lead, merge_qualification
 from ai.scoring import calculate_lead_score
 from ai.schemas import ChatRequest, ChatResponse
 from ai.nurture_service import prepare_nurture_for_lead
-
+from ai.article_feed import ArticleFeedError
+from ai.image_library import ApprovedImageSourceError
+from ai.batch_library import ApprovedBatchSourceError
 
 # =========================================================
 # FASTAPI fastapi()
@@ -798,6 +800,36 @@ def prepare_lead_nurture(
         print("\n", flush=True)
 
         return result
+
+    except ArticleFeedError as error:
+        print(
+            f"ARTICLE FEED ERROR: {error}",
+            flush=True
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Approved article feed is temporarily unavailable",
+        ) from error
+
+    except ApprovedImageSourceError as error:
+        print(
+            f"APPROVED IMAGE SOURCE ERROR: {error}",
+            flush=True
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Approved image source is temporarily unavailable",
+        ) from error
+
+    except ApprovedBatchSourceError as error:
+        print(
+            f"APPROVED BATCH SOURCE ERROR: {error}",
+            flush=True
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Approved batch source is temporarily unavailable",
+        ) from error
 
     except SQLAlchemyError as error:
 

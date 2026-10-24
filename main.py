@@ -22,17 +22,7 @@ from typing import Optional
 import models
 import schemas
 
-from database import (
-    engine,
-    SessionLocal,
-)
-
-
-# =========================================================
-# CREATE DATABASE TABLES
-# =========================================================
-
-models.Base.metadata.create_all(bind=engine)
+from database import SessionLocal
 
 
 # =========================================================

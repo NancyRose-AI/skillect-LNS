@@ -3,8 +3,10 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Boolean,
     DateTime,
     ForeignKey,
+    Index,
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -326,6 +328,117 @@ class NurtureMessage(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+
+# =========================================================
+# NURTURE CONTENT IDENTITY
+# =========================================================
+
+class NurtureContentIdentity(Base):
+    __tablename__ = "nurture_content_identities"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+    )
+
+    lead_id = Column(
+        Integer,
+        ForeignKey(
+            "leads.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    nurture_id = Column(
+        Integer,
+        ForeignKey(
+            "nurture_messages.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    identity = Column(
+        Text,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_nurture_content_identity_lead_identity",
+            "lead_id",
+            "identity",
+            unique=True,
+        ),
+    )
+
+
+# =========================================================
+# NURTURE IMAGE METADATA
+# =========================================================
+
+class NurtureImageMetadata(Base):
+    __tablename__ = "nurture_image_metadata"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+    )
+
+    nurture_id = Column(
+        Integer,
+        ForeignKey(
+            "nurture_messages.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    image_id = Column(
+        String(255),
+        nullable=True,
+    )
+
+    canonical_url = Column(
+        Text,
+        nullable=True,
+    )
+
+    topic = Column(
+        String(100),
+        nullable=False,
+    )
+
+    source = Column(
+        Text,
+        nullable=False,
+    )
+
+    approved = Column(
+        Boolean,
+        nullable=False,
+    )
+
+    content_hash = Column(
+        String(64),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_nurture_image_metadata_nurture_id",
+            "nurture_id",
+            unique=True,
+        ),
     )
 
 
