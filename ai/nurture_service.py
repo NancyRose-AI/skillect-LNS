@@ -1,3 +1,4 @@
+
 from datetime import datetime, timedelta
 from typing import Optional, List
 from zoneinfo import ZoneInfo
@@ -8,7 +9,10 @@ from models import Lead, Conversation, NurtureMessage
 
 from ai.nurturing import is_not_interested
 from ai.engagement import decide_engagement
-from ai.content_library import get_content
+from ai.content_library import (
+    get_content,
+    personalize_content,
+)
 
 
 # =========================================================
@@ -38,9 +42,7 @@ def ensure_timezone(
         return None
 
     if value.tzinfo is None:
-        return value.replace(
-            tzinfo=INDIA_TIMEZONE
-        )
+        return value.replace(tzinfo=INDIA_TIMEZONE)
 
     return value
 
@@ -60,9 +62,7 @@ def get_latest_lead_message(
             Conversation.lead_id == lead_id,
             Conversation.role == "lead",
         )
-        .order_by(
-            Conversation.created_at.desc()
-        )
+        .order_by(Conversation.created_at.desc())
         .first()
     )
 
@@ -83,9 +83,7 @@ def get_last_sent_nurture(
             NurtureMessage.status == "sent",
             NurtureMessage.sent_at.isnot(None),
         )
-        .order_by(
-            NurtureMessage.sent_at.desc()
-        )
+        .order_by(NurtureMessage.sent_at.desc())
         .first()
     )
 
@@ -103,13 +101,9 @@ def get_last_30_days_sent_count(
     if current_time is None:
         current_time = get_current_time()
 
-    current_time = ensure_timezone(
-        current_time
-    )
+    current_time = ensure_timezone(current_time)
 
-    period_start = (
-        current_time - timedelta(days=30)
-    )
+    period_start = current_time - timedelta(days=30)
 
     return (
         db.query(NurtureMessage)
@@ -139,32 +133,25 @@ def get_previous_content_types(
         .filter(
             NurtureMessage.lead_id == lead_id,
             NurtureMessage.content_type.isnot(None),
-            NurtureMessage.status.in_(
-                ["generated", "sent"]
-            ),
+            NurtureMessage.status.in_(["generated", "sent"]),
         )
-        .order_by(
-            NurtureMessage.created_at.desc()
-        )
+        .order_by(NurtureMessage.created_at.desc())
         .limit(limit)
         .all()
     )
 
-    # Database gives newest -> oldest.
-    # Reverse so engagement engine receives
-    # oldest -> newest.
+    # Reverse newest-to-oldest records so the
+    # engagement engine receives oldest-to-newest.
 
-    content_types = [
+    return [
         record.content_type
         for record in reversed(records)
         if record.content_type
     ]
 
-    return content_types
-
 
 # =========================================================
-# SAME DAY DUPLICATE CHECK
+# SAME-DAY DUPLICATE CHECK
 # =========================================================
 
 def has_nurture_today(
@@ -176,9 +163,7 @@ def has_nurture_today(
     if current_time is None:
         current_time = get_current_time()
 
-    current_time = ensure_timezone(
-        current_time
-    )
+    current_time = ensure_timezone(current_time)
 
     day_start = current_time.replace(
         hour=0,
@@ -187,9 +172,7 @@ def has_nurture_today(
         microsecond=0,
     )
 
-    day_end = (
-        day_start + timedelta(days=1)
-    )
+    day_end = day_start + timedelta(days=1)
 
     existing = (
         db.query(NurtureMessage)
@@ -197,9 +180,7 @@ def has_nurture_today(
             NurtureMessage.lead_id == lead_id,
             NurtureMessage.created_at >= day_start,
             NurtureMessage.created_at < day_end,
-            NurtureMessage.status.in_(
-                ["generated", "sent"]
-            ),
+            NurtureMessage.status.in_(["generated", "sent"]),
         )
         .first()
     )
@@ -216,20 +197,14 @@ def lead_replied_after_nurture(
     lead_id: int,
 ) -> bool:
 
-    last_nurture = get_last_sent_nurture(
-        db,
-        lead_id,
-    )
+    last_nurture = get_last_sent_nurture(db, lead_id)
 
-    # No previous sent nurture message
     if not last_nurture:
         return False
 
-    latest_lead_message = (
-        get_latest_lead_message(
-            db,
-            lead_id,
-        )
+    latest_lead_message = get_latest_lead_message(
+        db,
+        lead_id,
     )
 
     if not latest_lead_message:
@@ -243,16 +218,10 @@ def lead_replied_after_nurture(
         last_nurture.sent_at
     )
 
-    if (
-        not lead_message_time
-        or not nurture_time
-    ):
+    if not lead_message_time or not nurture_time:
         return False
 
-    return (
-        lead_message_time
-        > nurture_time
-    )
+    return lead_message_time > nurture_time
 
 
 # =========================================================
@@ -268,53 +237,36 @@ def get_engagement_history(
     if current_time is None:
         current_time = get_current_time()
 
-    last_sent = get_last_sent_nurture(
+    last_sent = get_last_sent_nurture(db, lead_id)
+
+    previous_content_types = get_previous_content_types(
         db,
         lead_id,
     )
 
-    previous_content_types = (
-        get_previous_content_types(
-            db,
-            lead_id,
-        )
+    sent_last_30_days = get_last_30_days_sent_count(
+        db,
+        lead_id,
+        current_time,
     )
 
-    sent_last_30_days = (
-        get_last_30_days_sent_count(
-            db,
-            lead_id,
-            current_time,
-        )
-    )
-
-    replied_recently = (
-        lead_replied_after_nurture(
-            db,
-            lead_id,
-        )
+    replied_recently = lead_replied_after_nurture(
+        db,
+        lead_id,
     )
 
     return {
         "last_sent_at": (
-            last_sent.sent_at
-            if last_sent
-            else None
+            last_sent.sent_at if last_sent else None
         ),
-        "messages_sent_last_30_days": (
-            sent_last_30_days
-        ),
-        "previous_content_types": (
-            previous_content_types
-        ),
-        "lead_replied_recently": (
-            replied_recently
-        ),
+        "messages_sent_last_30_days": sent_last_30_days,
+        "previous_content_types": previous_content_types,
+        "lead_replied_recently": replied_recently,
     }
 
 
 # =========================================================
-# PREPARE ENGAGEMENT FOR LEAD
+# PREPARE NURTURE FOR LEAD
 # =========================================================
 
 def prepare_nurture_for_lead(
@@ -327,9 +279,7 @@ def prepare_nurture_for_lead(
     if current_time is None:
         current_time = get_current_time()
 
-    current_time = ensure_timezone(
-        current_time
-    )
+    current_time = ensure_timezone(current_time)
 
     # -----------------------------------------------------
     # 1. FIND LEAD
@@ -337,9 +287,7 @@ def prepare_nurture_for_lead(
 
     lead = (
         db.query(Lead)
-        .filter(
-            Lead.id == lead_id
-        )
+        .filter(Lead.id == lead_id)
         .first()
     )
 
@@ -353,15 +301,9 @@ def prepare_nurture_for_lead(
     # 2. CHECK LEAD STATUS
     # -----------------------------------------------------
 
-    status = (
-        lead.status or "new"
-    ).lower().strip()
+    status = (lead.status or "new").lower().strip()
 
-    if status in {
-        "converted",
-        "lost",
-        "closed",
-    }:
+    if status in {"converted", "lost", "closed"}:
         return {
             "eligible": False,
             "reason": "lead_closed",
@@ -371,34 +313,29 @@ def prepare_nurture_for_lead(
     # 3. GET LATEST LEAD MESSAGE
     # -----------------------------------------------------
 
-    latest_conversation = (
-        get_latest_lead_message(
-            db,
-            lead_id,
-        )
+    latest_conversation = get_latest_lead_message(
+        db,
+        lead_id,
     )
 
-    latest_message = None
-
-    if latest_conversation:
-        latest_message = (
-            latest_conversation.message
-        )
+    latest_message = (
+        latest_conversation.message
+        if latest_conversation
+        else None
+    )
 
     # -----------------------------------------------------
     # 4. EXPLICIT OPT-OUT
     # -----------------------------------------------------
 
-    if is_not_interested(
-        latest_message
-    ):
+    if is_not_interested(latest_message):
         return {
             "eligible": False,
             "reason": "lead_opted_out",
         }
 
     # -----------------------------------------------------
-    # 5. GET ENGAGEMENT HISTORY FROM DATABASE
+    # 5. GET ENGAGEMENT HISTORY
     # -----------------------------------------------------
 
     history = get_engagement_history(
@@ -423,17 +360,6 @@ def prepare_nurture_for_lead(
 
     # -----------------------------------------------------
     # 7. ASK ENGAGEMENT ENGINE
-    #
-    # engagement.py decides:
-    #
-    # - Is lead eligible?
-    # - COLD/WARM/HOT behavior
-    # - Minimum gap
-    # - Monthly safety limit
-    # - Content rotation
-    # - Batch priority
-    # - Reply pause
-    # - Opt-out
     # -----------------------------------------------------
 
     decision = decide_engagement(
@@ -441,9 +367,7 @@ def prepare_nurture_for_lead(
         interest=lead.interest,
         lead_status=lead.status,
         last_lead_message=latest_message,
-        last_sent_at=history[
-            "last_sent_at"
-        ],
+        last_sent_at=history["last_sent_at"],
         messages_sent_last_30_days=history[
             "messages_sent_last_30_days"
         ],
@@ -461,46 +385,17 @@ def prepare_nurture_for_lead(
     # 8. ENGAGEMENT NOT ALLOWED
     # -----------------------------------------------------
 
-    if not decision.get(
-        "eligible"
-    ):
+    if not decision.get("eligible"):
         return {
             **decision,
             "lead_id": lead.id,
         }
 
-    content_type = decision.get(
-        "content_type"
-    )
-
-    topic = decision.get(
-        "topic"
-    )
+    content_type = decision.get("content_type")
+    topic = decision.get("topic")
 
     # -----------------------------------------------------
-    # 9. GET CONTENT FROM APPROVED CONTENT LIBRARY
-    #
-    # IMPORTANT:
-    #
-    # educational
-    #     -> approved business content
-    #
-    # career_tip
-    #     -> approved career content
-    #
-    # industry_update
-    #     -> requires verified source
-    #
-    # newsletter
-    #     -> requires approved source
-    #
-    # image
-    #     -> requires approved image
-    #
-    # batch_update
-    #     -> requires real batch data
-    #
-    # The LLM is NOT allowed to invent these.
+    # 9. GET APPROVED CONTENT
     # -----------------------------------------------------
 
     content_result = get_content(
@@ -512,15 +407,11 @@ def prepare_nurture_for_lead(
     # 10. CONTENT NOT READY
     # -----------------------------------------------------
 
-    if not content_result.get(
-        "ready"
-    ):
+    if not content_result.get("ready"):
         return {
             "eligible": True,
             "ready_to_send": False,
-            "reason": content_result.get(
-                "reason"
-            ),
+            "reason": content_result.get("reason"),
             "lead_id": lead.id,
             "content_type": content_type,
             "topic": topic,
@@ -533,12 +424,10 @@ def prepare_nurture_for_lead(
         }
 
     # -----------------------------------------------------
-    # 11. APPROVED MESSAGE
+    # 11. GET APPROVED MESSAGE
     # -----------------------------------------------------
 
-    message = content_result.get(
-        "message"
-    )
+    message = content_result.get("message")
 
     if not message:
         return {
@@ -551,37 +440,38 @@ def prepare_nurture_for_lead(
         }
 
     # -----------------------------------------------------
-    # 12. ENGAGEMENT STAGE
+    # 12. PERSONALIZE APPROVED CONTENT
     #
-    # Stage represents the engagement sequence.
-    # It is NOT a weekly message count.
+    # Uses existing database values.
+    # Does not generate new course claims.
+    # -----------------------------------------------------
+
+    message = personalize_content(
+        message=message,
+        lead_name=lead.name,
+        interest=lead.interest,
+        budget=lead.budget,
+        timeline=lead.timeline,
+        requirement=lead.requirement,
+    )
+
+    # -----------------------------------------------------
+    # 13. DETERMINE ENGAGEMENT STAGE
     # -----------------------------------------------------
 
     total_previous_records = (
         db.query(NurtureMessage)
-        .filter(
-            NurtureMessage.lead_id
-            == lead_id
-        )
+        .filter(NurtureMessage.lead_id == lead_id)
         .count()
     )
 
-    stage = (
-        total_previous_records + 1
-    )
+    stage = total_previous_records + 1
 
     # -----------------------------------------------------
-    # 13. SAVE GENERATED ENGAGEMENT
+    # 14. SAVE GENERATED MESSAGE
     #
-    # IMPORTANT:
-    #
-    # generated != sent
-    #
-    # We save the prepared message first.
-    #
-    # Actual WhatsApp integration must call
-    # mark_nurture_sent() ONLY after the
-    # provider/API successfully accepts the message.
+    # Generated does not mean sent.
+    # No WhatsApp message is sent here.
     # -----------------------------------------------------
 
     nurture_record = NurtureMessage(
@@ -593,18 +483,17 @@ def prepare_nurture_for_lead(
         status="generated",
     )
 
-    db.add(
-        nurture_record
-    )
+    try:
+        db.add(nurture_record)
+        db.commit()
+        db.refresh(nurture_record)
 
-    db.commit()
-
-    db.refresh(
-        nurture_record
-    )
+    except Exception:
+        db.rollback()
+        raise
 
     # -----------------------------------------------------
-    # 14. RETURN GENERATED ENGAGEMENT
+    # 15. RETURN GENERATED MESSAGE
     # -----------------------------------------------------
 
     return {
@@ -614,21 +503,15 @@ def prepare_nurture_for_lead(
         "nurture_id": nurture_record.id,
         "lead_id": lead.id,
         "stage": stage,
-        "content_type": (
-            nurture_record.content_type
-        ),
-        "topic": (
-            nurture_record.topic
-        ),
+        "content_type": nurture_record.content_type,
+        "topic": nurture_record.topic,
         "messages_sent_last_30_days": history[
             "messages_sent_last_30_days"
         ],
         "previous_content_types": history[
             "previous_content_types"
         ],
-        "message": (
-            nurture_record.message
-        ),
+        "message": nurture_record.message,
     }
 
 
@@ -645,25 +528,18 @@ def mark_nurture_sent(
     if sent_time is None:
         sent_time = get_current_time()
 
-    sent_time = ensure_timezone(
-        sent_time
-    )
+    sent_time = ensure_timezone(sent_time)
 
     record = (
         db.query(NurtureMessage)
-        .filter(
-            NurtureMessage.id
-            == nurture_id
-        )
+        .filter(NurtureMessage.id == nurture_id)
         .first()
     )
 
     if not record:
         return {
             "success": False,
-            "reason": (
-                "nurture_message_not_found"
-            ),
+            "reason": "nurture_message_not_found",
         }
 
     # -----------------------------------------------------
@@ -681,27 +557,22 @@ def mark_nurture_sent(
     # -----------------------------------------------------
 
     record.status = "sent"
-
     record.sent_at = sent_time
 
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(record)
 
-    db.refresh(
-        record
-    )
+    except Exception:
+        db.rollback()
+        raise
 
     return {
         "success": True,
         "nurture_id": record.id,
         "lead_id": record.lead_id,
         "stage": record.stage,
-        "content_type": (
-            record.content_type
-        ),
-        "topic": (
-            record.topic
-        ),
-        "sent_at": (
-            record.sent_at
-        ),
+        "content_type": record.content_type,
+        "topic": record.topic,
+        "sent_at": record.sent_at,
     }

@@ -192,3 +192,41 @@ def get_content(
         "topic": topic,
         "message": None,
     }
+# =========================================================
+# PERSONALIZE APPROVED NURTURE CONTENT
+# =========================================================
+
+def personalize_content(
+    message: str,
+    lead_name: Optional[str] = None,
+    interest: Optional[str] = None,
+    budget: Optional[Any] = None,
+    timeline: Optional[str] = None,
+    requirement: Optional[str] = None,
+) -> str:
+    """Personalize approved content using saved lead details."""
+
+    parts = []
+
+    if lead_name and lead_name.strip():
+        parts.append(f"Hi {lead_name.strip()},")
+
+    parts.append(message.strip())
+
+    if interest and interest.strip():
+        parts.append(f"Your area of interest is {interest.strip()}.")
+
+    if timeline and timeline.strip():
+        parts.append(f"Your planned timeline is {timeline.strip()}.")
+
+    if requirement and requirement.strip():
+        parts.append(f"Your current goal is {requirement.strip()}.")
+
+    if budget is not None:
+        parts.append(f"Your indicated budget is {budget}.")
+
+    parts.append(
+        "Please let our team know if you would like more details."
+    )
+
+    return "\n\n".join(parts)
