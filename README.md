@@ -52,6 +52,29 @@ untrusted, unavailable, too large, or invalid XML, the nurture endpoint
 returns HTTP 503 rather than sending unverified fallback content. Image and
 batch items still require their own approved sources.
 
+## HOT lead sales alerts
+
+The root FastAPI app creates one persistent `hot_lead` alert when a lead
+transitions from non-HOT to HOT through either CRM scoring (`lead_score` /
+`lead_temperature`, HOT at 70) or AI qualification scoring (`ai_score` /
+`ai_temperature`, HOT at 80). A lead is considered HOT if either temperature
+is HOT, and an existing active alert suppresses duplicates. Alerts include
+the lead, triggering score and reason, available qualification details,
+status (`active`, `acknowledged`, or `resolved`), and creation timestamp.
+
+The API provides `GET /alerts` (optional `status`, `skip`, and `limit`
+filters), `GET /alerts/{alert_id}`, and
+`PATCH /alerts/{alert_id}/status` with a JSON body such as
+`{"status":"acknowledged"}`. The dashboard reads these endpoints from
+`NEXT_PUBLIC_API_URL` and offers acknowledge/resolve actions in the HOT Lead
+Alerts panel.
+
+The `lead_alerts` table already exists in the initial schema. Revision
+`0003_hot_lead_alert_details` adds the reason, score, and qualification
+summary columns and normalizes legacy alert statuses. Apply `alembic upgrade
+head` only after verifying that Alembic is configured for the intended
+database; application startup does not run migrations.
+
 Approved images are loaded from `ai/approved_images.json` by default. To use a
 separate manifest, set `APPROVED_IMAGE_MANIFEST` to its path. The manifest is a
 JSON array of records with `image_id` or `image_url`, `topic`, `source`, and

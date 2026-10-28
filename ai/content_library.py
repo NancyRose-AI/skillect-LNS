@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any
 from collections.abc import Iterable, Mapping
 
-from ai.content_dedup import select_content_item
+from ai.content_dedup import select_content_item_with_report
 from ai.image_library import get_image_content
 
 # =========================================================
@@ -114,6 +114,7 @@ def get_content(
     previously_used_identities = (
         previously_used_identities or set()
     )
+    approved_items_were_provided = approved_items is not None
     approved_items = list(approved_items or [])
 
     # -----------------------------------------------------
@@ -143,7 +144,7 @@ def get_content(
             for candidate in candidate_messages
             if candidate
         ]
-        selected, identities = select_content_item(
+        selected, identities, deduplication = select_content_item_with_report(
             content_type,
             candidate_messages,
             previously_used_identities,
@@ -158,6 +159,7 @@ def get_content(
                 "content_type": content_type,
                 "topic": topic,
                 "message": None,
+                "deduplication": deduplication,
             }
 
         return {
@@ -167,6 +169,7 @@ def get_content(
             "topic": topic,
             "message": message,
             "content_identities": identities,
+            "deduplication": deduplication,
         }
 
     # -----------------------------------------------------
@@ -196,7 +199,7 @@ def get_content(
             for candidate in candidate_messages
             if candidate
         ]
-        selected, identities = select_content_item(
+        selected, identities, deduplication = select_content_item_with_report(
             content_type,
             candidate_messages,
             previously_used_identities,
@@ -211,6 +214,7 @@ def get_content(
                 "content_type": content_type,
                 "topic": topic,
                 "message": None,
+                "deduplication": deduplication,
             }
 
         return {
@@ -220,12 +224,18 @@ def get_content(
             "topic": topic,
             "message": message,
             "content_identities": identities,
+            "deduplication": deduplication,
         }
 
     if content_type == "image":
         image_result = get_image_content(
             topic,
             previously_used_identities=previously_used_identities,
+            approved_items=(
+                approved_items
+                if approved_items_were_provided
+                else None
+            ),
         )
         if not image_result.get("ready"):
             return {
@@ -253,6 +263,7 @@ def get_content(
             "image_url": image_url,
             "image_metadata": metadata,
             "content_identities": image_result["content_identities"],
+            "deduplication": image_result["deduplication"],
         }
 
     # -----------------------------------------------------
@@ -308,10 +319,12 @@ def get_content(
                 )
 
         if prepared_candidates:
-            selected, identities = select_content_item(
+            selected, identities, deduplication = (
+                select_content_item_with_report(
                 content_type,
                 prepared_candidates,
                 previously_used_identities,
+                )
             )
             if selected:
                 message = (
@@ -327,14 +340,21 @@ def get_content(
                     "topic": topic,
                     "message": message,
                     "content_identities": identities,
+                    "deduplication": deduplication,
                 }
 
+        _, _, deduplication = select_content_item_with_report(
+            content_type,
+            prepared_candidates,
+            previously_used_identities,
+        )
         return {
             "ready": False,
             "reason": "verified_content_required",
             "content_type": content_type,
             "topic": topic,
             "message": None,
+            "deduplication": deduplication,
         }
 
     # -----------------------------------------------------

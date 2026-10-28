@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import (
     FastAPI,
     Depends,
@@ -7,8 +9,9 @@ from fastapi import (
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from datetime import (
     datetime,
@@ -23,6 +26,10 @@ import models
 import schemas
 
 from database import SessionLocal
+from lead_alerts import create_hot_lead_alert, is_hot_lead
+
+
+logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -440,6 +447,121 @@ def get_hot_leads(
 
 
 # =========================================================
+# SALES ALERTS
+# =========================================================
+
+@app.get(
+    "/alerts",
+    response_model=list[schemas.LeadAlertResponse],
+)
+def get_alerts(
+    status: Optional[schemas.LeadAlertStatus] = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.LeadAlert).options(
+        joinedload(models.LeadAlert.lead)
+    )
+    if status:
+        query = query.filter(models.LeadAlert.status == status)
+    return (
+        query.order_by(
+            models.LeadAlert.created_at.desc(),
+            models.LeadAlert.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+@app.get(
+    "/alerts/{alert_id}",
+    response_model=schemas.LeadAlertResponse,
+)
+def get_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+):
+    alert = (
+        db.query(models.LeadAlert)
+        .options(joinedload(models.LeadAlert.lead))
+        .filter(models.LeadAlert.id == alert_id)
+        .first()
+    )
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+
+@app.patch(
+    "/alerts/{alert_id}/status",
+    response_model=schemas.LeadAlertResponse,
+)
+def update_alert_status(
+    alert_id: int,
+    status_data: schemas.LeadAlertStatusUpdate,
+    db: Session = Depends(get_db),
+):
+    alert = (
+        db.query(models.LeadAlert)
+        .filter(models.LeadAlert.id == alert_id)
+        .first()
+    )
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    lead = (
+        db.query(models.Lead)
+        .filter(models.Lead.id == alert.lead_id)
+        .with_for_update()
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    alert = (
+        db.query(models.LeadAlert)
+        .filter(models.LeadAlert.id == alert_id)
+        .with_for_update()
+        .first()
+    )
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if status_data.status == "active" and alert.status != "active":
+        active_alert = (
+            db.query(models.LeadAlert)
+            .filter(
+                models.LeadAlert.lead_id == alert.lead_id,
+                models.LeadAlert.alert_type == "hot_lead",
+                models.LeadAlert.status == "active",
+                models.LeadAlert.id != alert.id,
+            )
+            .first()
+        )
+        if active_alert:
+            raise HTTPException(
+                status_code=409,
+                detail="This lead already has an active HOT alert",
+            )
+
+    alert.status = status_data.status
+    try:
+        db.commit()
+    except SQLAlchemyError as error:
+        db.rollback()
+        logger.exception("Unable to update lead alert status")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to update alert status",
+        ) from error
+    db.refresh(alert)
+    return alert
+
+
+# =========================================================
 # ALL FOLLOW-UPS
 # =========================================================
 
@@ -592,6 +714,13 @@ def create_lead(
         db.add(lead)
 
         db.flush()
+        create_hot_lead_alert(
+            db,
+            lead,
+            was_hot=False,
+            score=lead.lead_score,
+            reason=f"Lead became HOT with a CRM score of {lead.lead_score}.",
+        )
 
         create_activity(
             db=db,
@@ -894,6 +1023,7 @@ def update_lead(
         .filter(
             models.Lead.id == lead_id
         )
+        .with_for_update()
         .first()
     )
 
@@ -913,6 +1043,7 @@ def update_lead(
     old_status = lead.status
     old_notes = lead.notes
     old_followup = lead.follow_up_at
+    was_hot = is_hot_lead(lead)
 
     if "email" in update_data:
 
@@ -949,6 +1080,13 @@ def update_lead(
         )
 
     update_lead_score(lead)
+    create_hot_lead_alert(
+        db,
+        lead,
+        was_hot=was_hot,
+        score=lead.lead_score,
+        reason=f"Lead became HOT with a CRM score of {lead.lead_score}.",
+    )
 
     if (
         "status" in update_data
@@ -1069,6 +1207,7 @@ def update_followup(
     lead = (
         db.query(models.Lead)
         .filter(models.Lead.id == lead_id)
+        .with_for_update()
         .first()
     )
 
@@ -1079,6 +1218,8 @@ def update_followup(
             detail="Lead not found",
         )
 
+    was_hot = is_hot_lead(lead)
+
     # Update follow-up date/time
     lead.follow_up_at = followup.follow_up_at
 
@@ -1088,6 +1229,13 @@ def update_followup(
 
     # Recalculate lead score
     update_lead_score(lead)
+    create_hot_lead_alert(
+        db,
+        lead,
+        was_hot=was_hot,
+        score=lead.lead_score,
+        reason=f"Lead became HOT with a CRM score of {lead.lead_score}.",
+    )
 
     # Save activity history
     create_activity(
@@ -1125,6 +1273,7 @@ def update_status(
     lead = (
         db.query(models.Lead)
         .filter(models.Lead.id == lead_id)
+        .with_for_update()
         .first()
     )
 
@@ -1137,6 +1286,7 @@ def update_status(
 
     # Save old status for activity history
     old_status = lead.status
+    was_hot = is_hot_lead(lead)
 
     # Update status
     lead.status = status_data.status
@@ -1147,6 +1297,13 @@ def update_status(
 
     # Recalculate score and temperature
     update_lead_score(lead)
+    create_hot_lead_alert(
+        db,
+        lead,
+        was_hot=was_hot,
+        score=lead.lead_score,
+        reason=f"Lead became HOT with a CRM score of {lead.lead_score}.",
+    )
 
     # Save activity
     create_activity(

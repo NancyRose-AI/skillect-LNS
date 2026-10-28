@@ -1,4 +1,9 @@
+import ipaddress
+import json
+import logging
+import os
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,16 +14,32 @@ from sqlalchemy import text
 
 import models
 from database import SessionLocal
+from lead_alerts import create_hot_lead_alert, is_hot_lead
 
 from ai.LLM import ask_ai
 from ai.router import route_message
 from ai.qualification import qualify_lead, merge_qualification
 from ai.scoring import calculate_lead_score
 from ai.schemas import ChatRequest, ChatResponse
-from ai.nurture_service import prepare_nurture_for_lead
+from ai.nurture_service import (
+    prepare_dedup_test_for_lead,
+    prepare_nurture_for_lead,
+)
 from ai.article_feed import ArticleFeedError
 from ai.image_library import ApprovedImageSourceError
 from ai.batch_library import ApprovedBatchSourceError
+
+
+logger = logging.getLogger(__name__)
+DEDUP_TEST_FIXTURE_PATH = Path(__file__).with_name(
+    "dedup_test_candidates.json"
+)
+DEDUP_TEST_CONTENT_TYPES = {
+    "text": "educational",
+    "article": "industry_update",
+    "image": "image",
+    "batch": "batch_update",
+}
 
 # =========================================================
 # FASTAPI fastapi()
@@ -55,6 +76,56 @@ def get_db():
 
     finally:
         db.close()
+
+
+def _require_dedup_test_database(db: Session) -> None:
+    if os.getenv("ENABLE_DEDUP_TEST_ENDPOINT", "").lower() != "true":
+        raise HTTPException(
+            status_code=404,
+            detail="Backend dedup test endpoint is disabled",
+        )
+
+    identity = db.execute(
+        text(
+            """
+            SELECT current_database(), host(inet_server_addr())
+            """
+        )
+    ).one()
+    try:
+        loopback = ipaddress.ip_address(identity[1]).is_loopback
+    except (TypeError, ValueError):
+        loopback = False
+
+    if identity[0] != "lead_db_test" or not loopback:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Backend dedup test endpoint is restricted to the "
+                "loopback lead_db_test database"
+            ),
+        )
+
+
+def _load_dedup_test_candidates(content_type: str) -> list[dict]:
+    try:
+        fixture = json.loads(
+            DEDUP_TEST_FIXTURE_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        logger.exception("Unable to load backend dedup test fixtures")
+        raise HTTPException(
+            status_code=500,
+            detail="Backend dedup test fixtures are unavailable",
+        ) from error
+
+    candidates = fixture.get(content_type)
+    if not isinstance(candidates, list) or not candidates:
+        raise HTTPException(
+            status_code=503,
+            detail=f"No approved test candidates configured for {content_type}",
+        )
+    return candidates
 
 
 # =========================================================
@@ -161,6 +232,7 @@ def chat(
         .filter(
             models.Lead.id == request.lead_id
         )
+        .with_for_update()
         .first()
     )
 
@@ -186,6 +258,8 @@ def chat(
             status_code=404,
             detail="Lead not found"
         )
+
+    was_hot = is_hot_lead(lead)
 
     print(
         f"LEAD FOUND: "
@@ -461,6 +535,13 @@ def chat(
     lead.ai_score = scoring["score"]
 
     lead.ai_temperature = scoring["status"]
+    create_hot_lead_alert(
+        db,
+        lead,
+        was_hot=was_hot,
+        score=lead.ai_score,
+        reason=f"Lead became HOT with an AI qualification score of {lead.ai_score}.",
+    )
 
 
     # -----------------------------------------------------
@@ -531,6 +612,10 @@ def chat(
     except SQLAlchemyError as error:
 
         db.rollback()
+        logger.exception(
+            "Nurture database failure for lead_id=%s",
+            lead_id,
+        )
 
         print(
             f"DATABASE COMMIT ERROR: {error}",
@@ -860,6 +945,62 @@ def prepare_lead_nurture(
             status_code=500,
             detail="Unable to prepare nurture message",
         ) from error
+
+
+@app.post("/ai/dedup-test/{lead_id}/{content_kind}")
+def run_dedup_test(
+    lead_id: int,
+    content_kind: str,
+    db: Session = Depends(get_db),
+):
+    if content_kind not in DEDUP_TEST_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail="Content kind must be text, article, image, or batch",
+        )
+
+    _require_dedup_test_database(db)
+    test_content_type = DEDUP_TEST_CONTENT_TYPES[content_kind]
+    candidates = _load_dedup_test_candidates(test_content_type)
+    if not candidates:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"No approved test candidates configured for "
+                f"{test_content_type}"
+            ),
+        )
+    try:
+        result = prepare_dedup_test_for_lead(
+            db=db,
+            lead_id=lead_id,
+            content_type=test_content_type,
+            approved_candidates=candidates,
+        )
+    except SQLAlchemyError as error:
+        db.rollback()
+        logger.exception(
+            "Dedup test database failure for lead_id=%s content_kind=%s",
+            lead_id,
+            content_kind,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to persist backend dedup test selection",
+        ) from error
+
+    if not result.get("ready_to_send"):
+        return {
+            **result,
+            "dedup_test": True,
+            "test_candidate_count": len(candidates),
+        }
+
+    return {
+        **result,
+        "dedup_test": True,
+        "test_candidate_count": len(candidates),
+    }
 
 
 # =========================================================

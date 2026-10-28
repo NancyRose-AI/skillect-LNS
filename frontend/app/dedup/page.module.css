@@ -169,7 +169,8 @@
 }
 
 .form input,
-.form textarea {
+.form textarea,
+.form select {
   width: 100%;
   min-width: 0;
   padding: 10px 11px;
@@ -353,6 +354,23 @@
 .apiResult details {
   padding-top: 9px;
   border-top: 1px solid #e7e2f0;
+}
+
+.liveNurture {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #e7e2f0;
+}
+
+.liveNurture > summary {
+  cursor: pointer;
+  color: #5340b6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.liveNurture > p {
+  margin-top: 12px;
 }
 
 .apiResult summary {

@@ -155,6 +155,12 @@ class Lead(Base):
         cascade="all, delete-orphan",
     )
 
+    alerts = relationship(
+        "LeadAlert",
+        back_populates="lead",
+        cascade="all, delete-orphan",
+    )
+
 
 # =========================================================
 # LEAD ACTIVITY MODEL
@@ -482,18 +488,40 @@ class LeadAlert(Base):
         nullable=False,
     )
 
+    reason = Column(
+        Text,
+        nullable=False,
+    )
+
+    score = Column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    qualification_summary = Column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
     # Future values:
-    # pending
+    # active
     # acknowledged
-    # handled
+    # resolved
     status = Column(
         String(20),
         nullable=False,
-        default="pending",
+        default="active",
     )
 
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+    lead = relationship(
+        "Lead",
+        back_populates="alerts",
     )

@@ -184,9 +184,31 @@ def select_content_item(
     items: Iterable[str | Mapping[str, Any]],
     previously_used: Iterable[str] = (),
 ) -> tuple[str | Mapping[str, Any] | None, set[str]]:
+    selected, identities, _ = select_content_item_with_report(
+        content_type,
+        items,
+        previously_used,
+    )
+    return selected, identities
+
+
+def select_content_item_with_report(
+    content_type: str,
+    items: Iterable[str | Mapping[str, Any]],
+    previously_used: Iterable[str] = (),
+) -> tuple[
+    str | Mapping[str, Any] | None,
+    set[str],
+    dict[str, Any],
+]:
     candidates = list(items)
     if not candidates:
-        return None, set()
+        return None, set(), {
+            "candidate_count": 0,
+            "skipped_duplicates": [],
+            "selected_identities": [],
+            "selected_previously_used": False,
+        }
 
     used = set(previously_used)
     identified_candidates = [
@@ -194,11 +216,31 @@ def select_content_item(
         for item in candidates
     ]
 
+    skipped_duplicates = [
+        {
+            "identities": sorted(identities),
+            "matched_identities": sorted(identities.intersection(used)),
+        }
+        for _, identities in identified_candidates
+        if not identities.isdisjoint(used)
+    ]
+
     for item, identities in identified_candidates:
         if identities.isdisjoint(used):
-            return item, identities
+            return item, identities, {
+                "candidate_count": len(candidates),
+                "skipped_duplicates": skipped_duplicates,
+                "selected_identities": sorted(identities),
+                "selected_previously_used": False,
+            }
 
-    return identified_candidates[0]
+    selected, identities = identified_candidates[0]
+    return selected, identities, {
+        "candidate_count": len(candidates),
+        "skipped_duplicates": skipped_duplicates,
+        "selected_identities": sorted(identities),
+        "selected_previously_used": True,
+    }
 
 
 def extract_urls(text: str) -> set[str]:

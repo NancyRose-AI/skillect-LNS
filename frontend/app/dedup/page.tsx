@@ -16,6 +16,22 @@ type NurturePayload = Record<string, unknown> & {
   nurture_id?: number;
   lead_id?: number;
   content_type?: string;
+  deduplication?: DeduplicationReport;
+};
+type DeduplicationReport = {
+  candidate_count?: number;
+  skipped_duplicates?: Array<{
+    identities: string[];
+    matched_identities: string[];
+  }>;
+  selected_identities?: string[];
+  selected_previously_used?: boolean;
+  persisted?: boolean;
+  persisted_identities?: string[];
+};
+type DedupTestPayload = NurturePayload & {
+  dedup_test?: boolean;
+  test_candidate_count?: number;
 };
 
 const contentKinds: Array<{ value: ContentKind; label: string }> = [
@@ -178,6 +194,10 @@ export default function DedupWorkbenchPage() {
   const [apiResult, setApiResult] = useState<NurturePayload | null>(null);
   const [apiError, setApiError] = useState("");
   const [apiLoading, setApiLoading] = useState(false);
+  const [dedupKind, setDedupKind] = useState<ContentKind>("text");
+  const [dedupResult, setDedupResult] = useState<DedupTestPayload | null>(null);
+  const [dedupError, setDedupError] = useState("");
+  const [dedupLoading, setDedupLoading] = useState(false);
 
   const knownIdentities = useMemo(
     () => new Set(records.flatMap((record) => record.identities)),
@@ -251,6 +271,39 @@ export default function DedupWorkbenchPage() {
       );
     } finally {
       setApiLoading(false);
+    }
+  }
+
+  async function submitDedupTest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDedupResult(null);
+    setDedupError("");
+    setDedupLoading(true);
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/ai/dedup-test/${encodeURIComponent(leadId.trim())}/${dedupKind}`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json" },
+        },
+      );
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${responseError(payload)}`);
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error("The backend returned a non-object response.");
+      }
+      setDedupResult(payload as DedupTestPayload);
+    } catch (error) {
+      setDedupError(
+        error instanceof Error
+          ? error.message
+          : "Unable to run the backend deduplication test.",
+      );
+    } finally {
+      setDedupLoading(false);
     }
   }
 
@@ -420,17 +473,17 @@ export default function DedupWorkbenchPage() {
         <section className={styles.panel}>
           <div className={styles.sectionTitle}>
             <div>
-              <p className={styles.eyebrow}>LIVE API + DATABASE</p>
-              <h2>Run nurture selection</h2>
+              <p className={styles.eyebrow}>BACKEND + TEST DATABASE</p>
+              <h2>Prove persisted deduplication</h2>
             </div>
-            <span className={styles.apiBadge}>POST</span>
+            <span className={styles.persistedBadge}>Server fixtures</span>
           </div>
           <p className={styles.endpoint}>
-            <code>{apiBaseUrl}/ai/nurture/{"{lead_id}"}</code>
+            <code>{apiBaseUrl}/ai/dedup-test/{"{lead_id}/{content_kind}"}</code>
           </p>
-          <form className={styles.form} onSubmit={submitNurture}>
+          <form className={styles.form} onSubmit={submitDedupTest}>
             <label>
-              Existing numeric lead ID
+              Lead ID in the dedicated lead_db_test database
               <input
                 inputMode="numeric"
                 min="1"
@@ -442,74 +495,134 @@ export default function DedupWorkbenchPage() {
               />
             </label>
             <p className={styles.helper}>
-              The backend determines the content type from lead engagement
-              history. Article, image, and batch candidates come from the
-              backend-approved sources; this page does not invent or force them.
+              Select a content type, then submit twice. The backend uses its
+              bundled approved fixtures, reads this lead’s saved identities,
+              runs the normal selector, and persists each result. This test
+              endpoint is disabled unless explicitly enabled and connected to
+              loopback PostgreSQL database lead_db_test.
             </p>
+            <label>
+              Content type
+              <select
+                onChange={(event) =>
+                  setDedupKind(event.target.value as ContentKind)
+                }
+                value={dedupKind}
+              >
+                {contentKinds.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               className={styles.primaryButton}
-              disabled={apiLoading}
+              disabled={dedupLoading}
               type="submit"
             >
-              {apiLoading ? "Calling backend…" : "Run POST /ai/nurture"}
+              {dedupLoading ? "Checking and saving…" : "Run backend dedup test"}
             </button>
           </form>
 
-          {apiError && (
+          {dedupError && (
             <div className={styles.error} role="alert">
-              <strong>Backend request failed</strong>
-              <span>{apiError}</span>
+              <strong>Backend dedup test failed</strong>
+              <span>{dedupError}</span>
               <small>
-                Check that the AI API is running at the configured URL, CORS
-                allows the frontend origin, and the lead/database/source
-                configuration is valid.
+                Enable DEDUP test mode on the AI API and connect it to the
+                loopback lead_db_test database. Production and remote databases
+                are intentionally rejected.
               </small>
             </div>
           )}
-          {apiResult && (
+          {dedupResult && (
             <div className={styles.apiResult} aria-live="polite">
               <div className={styles.resultHeader}>
                 <strong>
-                  {apiResult.ready_to_send === true
-                    ? "Nurture generated"
-                    : "No new nurture generated"}
+                  {dedupResult.ready_to_send
+                    ? dedupResult.deduplication?.selected_previously_used
+                      ? "Backend selected previously used content"
+                      : "Backend selected unused content"
+                    : "No content selected"}
                 </strong>
                 <span
-                  className={
-                    apiResult.ready_to_send === true
-                      ? styles.persistedBadge
-                      : styles.localBadge
-                  }
+                  className={dedupResult.deduplication?.persisted
+                    ? styles.persistedBadge
+                    : styles.localBadge}
                 >
-                  {apiResult.ready_to_send === true
-                    ? "Backend confirmed"
-                    : "Not confirmed"}
+                  {dedupResult.deduplication?.persisted
+                    ? "Saved in test DB"
+                    : "Not persisted"}
                 </span>
               </div>
-              <p>{duplicateHint(apiResult)}</p>
+              <p>{duplicateHint(dedupResult)}</p>
               <dl className={styles.responseFields}>
-                <div><dt>Reason</dt><dd>{String(apiResult.reason ?? "—")}</dd></div>
-                <div><dt>Lead ID</dt><dd>{String(apiResult.lead_id ?? leadId)}</dd></div>
-                <div><dt>Nurture ID</dt><dd>{String(apiResult.nurture_id ?? "—")}</dd></div>
-                <div><dt>Content type</dt><dd>{String(apiResult.content_type ?? "—")}</dd></div>
+                <div><dt>Result</dt><dd>{String(dedupResult.reason ?? "—")}</dd></div>
+                <div><dt>Lead ID</dt><dd>{String(dedupResult.lead_id ?? leadId)}</dd></div>
+                <div><dt>Nurture ID</dt><dd>{String(dedupResult.nurture_id ?? "—")}</dd></div>
+                <div><dt>Content type</dt><dd>{String(dedupResult.content_type ?? "—")}</dd></div>
+                <div><dt>Candidates</dt><dd>{String(dedupResult.deduplication?.candidate_count ?? dedupResult.test_candidate_count ?? 0)}</dd></div>
+                <div><dt>Duplicate candidates skipped</dt><dd>{String(dedupResult.deduplication?.skipped_duplicates?.length ?? 0)}</dd></div>
+                <div><dt>Previously used selected</dt><dd>{String(dedupResult.deduplication?.selected_previously_used ?? false)}</dd></div>
               </dl>
-              {typeof apiResult.message === "string" && (
+              {dedupResult.deduplication?.skipped_duplicates?.map((skip, index) => (
+                <div className={styles.message} key={`${index}-${skip.identities.join("|")}`}>
+                  <strong>Skipped duplicate candidate {index + 1}</strong>
+                  <p>Matched saved identity: {skip.matched_identities.join(", ")}</p>
+                </div>
+              ))}
+              {dedupResult.deduplication?.selected_identities && (
+                <div className={styles.message}>
+                  <strong>Selected identity</strong>
+                  <p><code>{dedupResult.deduplication.selected_identities.join("\n")}</code></p>
+                </div>
+              )}
+              {dedupResult.deduplication?.persisted_identities && (
+                <div className={styles.message}>
+                  <strong>Identities confirmed persisted by backend</strong>
+                  <p><code>{dedupResult.deduplication.persisted_identities.join("\n")}</code></p>
+                </div>
+              )}
+              {typeof dedupResult.message === "string" && (
                 <div className={styles.message}>
                   <strong>Prepared message</strong>
-                  <p>{apiResult.message}</p>
+                  <p>{dedupResult.message}</p>
                 </div>
               )}
               <details>
                 <summary>Full API response</summary>
-                <pre>{JSON.stringify(apiResult, null, 2)}</pre>
+                <pre>{JSON.stringify(dedupResult, null, 2)}</pre>
               </details>
               <p className={styles.helper}>
-                The nurture API confirms persistence with a successful
-                `ready_to_send` response and `nurture_id`. It does not return
-                prior identity rows or a standalone content-source preview.
+                Run this again with the same lead and content type. The backend
+                should skip the first fixture and select the second; persistence
+                is confirmed by the returned nurture ID and stored identity set.
               </p>
             </div>
           )}
+          <details className={styles.liveNurture}>
+            <summary>Run normal engagement-based nurture endpoint</summary>
+            <p className={styles.endpoint}>
+              <code>{apiBaseUrl}/ai/nurture/{"{lead_id}"}</code>
+            </p>
+            <form className={styles.form} onSubmit={submitNurture}>
+              <button
+                className={styles.secondaryButton}
+                disabled={apiLoading || !leadId.trim()}
+                type="submit"
+              >
+                {apiLoading ? "Calling backend…" : "Run normal nurture"}
+              </button>
+            </form>
+            {apiError && <p className={styles.error} role="alert">{apiError}</p>}
+            {apiResult && (
+              <div className={styles.apiResult}>
+                <p>{duplicateHint(apiResult)}</p>
+                <pre>{JSON.stringify(apiResult, null, 2)}</pre>
+              </div>
+            )}
+          </details>
         </section>
       </div>
     </main>

@@ -1,4 +1,6 @@
+import ipaddress
 import os
+import secrets
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +16,7 @@ from fastapi.testclient import TestClient
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import sessionmaker
 
 from models import Lead, NurtureContentIdentity, NurtureMessage
@@ -25,6 +27,83 @@ POSTGRES_TEST_URL = os.getenv("POSTGRES_TEST_DATABASE_URL")
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _validate_disposable_database_url(database_url):
+    parsed_url = make_url(database_url)
+    if not parsed_url.database or "test" not in parsed_url.database.lower():
+        raise RuntimeError(
+            "POSTGRES_TEST_DATABASE_URL database name must contain 'test'"
+        )
+
+    host = (parsed_url.host or "").lower()
+    if host == "localhost":
+        return parsed_url
+
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        raise RuntimeError(
+            "POSTGRES_TEST_DATABASE_URL must use localhost or a loopback IP "
+            "to prevent tests from modifying a remote/shared database"
+        )
+
+    return parsed_url
+
+
+def _alembic_database_url(parsed_url, schema_name):
+    schema_url = parsed_url.update_query_dict(
+        {"options": [f"-csearch_path={schema_name}"]}
+    )
+    return schema_url.render_as_string(hide_password=False).replace(
+        "%",
+        "%%",
+    )
+
+
+class PostgresTestDatabaseSafetyTests(unittest.TestCase):
+    def test_accepts_loopback_database_with_test_name(self):
+        parsed_url = _validate_disposable_database_url(
+            "postgresql+psycopg2://127.0.0.1:5432/skillect_test"
+        )
+
+        self.assertEqual(parsed_url.database, "skillect_test")
+
+    def test_rejects_remote_database_even_when_name_contains_test(self):
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            _validate_disposable_database_url(
+                "postgresql+psycopg2://db.example.test:5432/skillect_test"
+            )
+
+    def test_rejects_database_without_test_in_name(self):
+        with self.assertRaisesRegex(RuntimeError, "must contain 'test'"):
+            _validate_disposable_database_url(
+                "postgresql+psycopg2://localhost:5432/lead_db"
+            )
+
+    def test_alembic_url_keeps_password_and_escapes_config_percent(self):
+        password = f"{secrets.token_urlsafe(16)}%"
+        parsed_url = URL.create(
+            "postgresql+psycopg2",
+            username="test_user",
+            password=password,
+            host="127.0.0.1",
+            port=5432,
+            database="skillect_test",
+        )
+
+        alembic_url = _alembic_database_url(parsed_url, "nurture_test_schema")
+        config = Config()
+        config.set_main_option("sqlalchemy.url", alembic_url)
+        restored_url = make_url(config.get_main_option("sqlalchemy.url"))
+
+        self.assertEqual(restored_url.password, password)
+        self.assertIn(
+            "-csearch_path=nurture_test_schema",
+            restored_url.query["options"],
+        )
+
+
 @unittest.skipUnless(
     POSTGRES_TEST_URL,
     "Set POSTGRES_TEST_DATABASE_URL to a disposable PostgreSQL database",
@@ -32,26 +111,42 @@ ROOT = Path(__file__).resolve().parents[1]
 class PostgresNurtureConcurrencyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        parsed_url = make_url(POSTGRES_TEST_URL)
-        if not parsed_url.database or "test" not in parsed_url.database.lower():
+        parsed_url = _validate_disposable_database_url(POSTGRES_TEST_URL)
+        if not parsed_url.drivername.startswith("postgresql"):
             raise RuntimeError(
-                "POSTGRES_TEST_DATABASE_URL database name must contain 'test'"
+                "POSTGRES_TEST_DATABASE_URL must use PostgreSQL"
             )
 
         cls.admin_engine = create_engine(POSTGRES_TEST_URL, pool_pre_ping=True)
         cls.schema_name = f"nurture_test_{uuid4().hex}"
         with cls.admin_engine.begin() as connection:
-            connection.execute(
-                text(f'CREATE SCHEMA "{cls.schema_name}"')
-            )
+            identity = connection.execute(
+                text(
+                    """
+                    SELECT current_database(), inet_server_addr()::text
+                    """
+                )
+            ).one()
+            if identity[0] != parsed_url.database:
+                raise RuntimeError(
+                    "Connected database does not match "
+                    "POSTGRES_TEST_DATABASE_URL"
+                )
+            try:
+                is_loopback_server = ipaddress.ip_address(identity[1]).is_loopback
+            except (TypeError, ValueError):
+                is_loopback_server = False
+            if not is_loopback_server:
+                raise RuntimeError(
+                    "Connected PostgreSQL server is not on loopback; "
+                    "refusing to create test schema"
+                )
+            connection.execute(text(f'CREATE SCHEMA "{cls.schema_name}"'))
 
         alembic_config = Config(str(ROOT / "alembic.ini"))
-        postgres_schema_url = parsed_url.update_query_dict(
-            {"options": [f"-csearch_path={cls.schema_name}"]}
-        )
         alembic_config.set_main_option(
             "sqlalchemy.url",
-            str(postgres_schema_url).replace("%", "%%"),
+            _alembic_database_url(parsed_url, cls.schema_name),
         )
         command.upgrade(alembic_config, "head")
 

@@ -187,6 +187,7 @@ def get_image_content(
     topic: Optional[str],
     previously_sent: Optional[list[str]] = None,
     previously_used_identities: Optional[Iterable[str]] = None,
+    approved_items: Optional[Iterable[Mapping[str, Any]]] = None,
 ) -> dict[str, Any]:
     if not topic:
         return {
@@ -196,13 +197,32 @@ def get_image_content(
             "image_url": None,
         }
 
-    images = get_approved_images(topic)
+    if approved_items is None:
+        images = get_approved_images(topic)
+    else:
+        images = [
+            image
+            for item in approved_items
+            if (
+                image := _validate_image_metadata(
+                    item,
+                    DEFAULT_IMAGE_MANIFEST.parent,
+                )
+            )
+            and image["topic"] == topic
+        ]
     if not images:
         return {
             "ready": False,
             "reason": "approved_image_not_found",
             "topic": topic,
             "image_url": None,
+            "deduplication": {
+                "candidate_count": 0,
+                "skipped_duplicates": [],
+                "selected_identities": [],
+                "selected_previously_used": False,
+            },
         }
 
     previously_used = set(previously_used_identities or [])
@@ -217,6 +237,7 @@ def get_image_content(
         else:
             previously_used.add(f"image:id:{previous_image.strip()}")
 
+    skipped_duplicates = []
     for image in images:
         identities = get_content_identities("image", image)
         if identities.isdisjoint(previously_used):
@@ -225,11 +246,31 @@ def get_image_content(
                 "reason": "approved_image_found",
                 **image,
                 "content_identities": identities,
+                "deduplication": {
+                    "candidate_count": len(images),
+                    "skipped_duplicates": skipped_duplicates,
+                    "selected_identities": sorted(identities),
+                    "selected_previously_used": False,
+                },
             }
+        skipped_duplicates.append(
+            {
+                "identities": sorted(identities),
+                "matched_identities": sorted(
+                    identities.intersection(previously_used)
+                ),
+            }
+        )
 
     return {
         "ready": False,
         "reason": "no_unused_approved_image",
         "topic": topic,
         "image_url": None,
+        "deduplication": {
+            "candidate_count": len(images),
+            "skipped_duplicates": skipped_duplicates,
+            "selected_identities": [],
+            "selected_previously_used": False,
+        },
     }

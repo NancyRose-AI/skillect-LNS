@@ -23,3 +23,27 @@ export type Lead = {
   created_at: string;
   conversations: Conversation[];
 };
+
+export type LeadAlertStatus = "active" | "acknowledged" | "resolved";
+
+export type LeadAlert = {
+  id: number;
+  lead_id: number;
+  alert_type: string;
+  reason: string;
+  score: number;
+  qualification_summary: string;
+  status: LeadAlertStatus;
+  created_at: string;
+  lead: {
+    id: number;
+    name: string;
+    email: string;
+    phone: string;
+    source: string;
+    lead_score: number;
+    lead_temperature: string;
+    ai_score: number;
+    ai_temperature: string;
+  };
+};

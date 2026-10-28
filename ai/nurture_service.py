@@ -427,6 +427,7 @@ def _prepare_nurture_for_lead_locked(
     approved_content: Optional[
         Mapping[str, List[str | Mapping[str, Any]]]
     ] = None,
+    dedup_test_content_type: Optional[str] = None,
 ):
 
     if current_time is None:
@@ -530,7 +531,7 @@ def _prepare_nurture_for_lead_locked(
     # 6. SAME-DAY DUPLICATE PROTECTION
     # -----------------------------------------------------
 
-    if has_nurture_today(
+    if dedup_test_content_type is None and has_nurture_today(
         db,
         lead_id,
         current_time,
@@ -555,26 +556,34 @@ def _prepare_nurture_for_lead_locked(
     # - Opt-out
     # -----------------------------------------------------
 
-    decision = decide_engagement(
-        ai_temperature=lead.ai_temperature,
-        interest=lead.interest,
-        lead_status=lead.status,
-        last_lead_message=latest_message,
-        last_sent_at=history[
-            "last_sent_at"
-        ],
-        messages_sent_last_30_days=history[
-            "messages_sent_last_30_days"
-        ],
-        previous_content_types=history[
-            "previous_content_types"
-        ],
-        lead_replied_recently=history[
-            "lead_replied_recently"
-        ],
-        batch_available=batch_available,
-        current_time=current_time,
-    )
+    if dedup_test_content_type is not None:
+        decision = {
+            "eligible": True,
+            "reason": "dedup_test_selection",
+            "content_type": dedup_test_content_type,
+            "topic": get_content_topic(lead.interest),
+        }
+    else:
+        decision = decide_engagement(
+            ai_temperature=lead.ai_temperature,
+            interest=lead.interest,
+            lead_status=lead.status,
+            last_lead_message=latest_message,
+            last_sent_at=history[
+                "last_sent_at"
+            ],
+            messages_sent_last_30_days=history[
+                "messages_sent_last_30_days"
+            ],
+            previous_content_types=history[
+                "previous_content_types"
+            ],
+            lead_replied_recently=history[
+                "lead_replied_recently"
+            ],
+            batch_available=batch_available,
+            current_time=current_time,
+        )
 
     # -----------------------------------------------------
     # 8. ENGAGEMENT NOT ALLOWED
@@ -674,6 +683,7 @@ def _prepare_nurture_for_lead_locked(
             "previous_content_types": history[
                 "previous_content_types"
             ],
+            "deduplication": content_result.get("deduplication"),
         }
 
     # -----------------------------------------------------
@@ -819,6 +829,11 @@ def _prepare_nurture_for_lead_locked(
         "message": (
             nurture_record.message
         ),
+        "deduplication": {
+            **(content_result.get("deduplication") or {}),
+            "persisted": True,
+            "persisted_identities": sorted(content_identities),
+        },
         "image": (
             {
                 **image_metadata,
@@ -846,6 +861,29 @@ def prepare_nurture_for_lead(
             current_time=current_time,
             batch_available=batch_available,
             approved_content=approved_content,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    if db.in_transaction():
+        db.rollback()
+    return result
+
+
+def prepare_dedup_test_for_lead(
+    db: Session,
+    lead_id: int,
+    content_type: str,
+    approved_candidates: List[Mapping[str, Any]],
+):
+    """Run the normal selector against explicitly supplied test fixtures."""
+    try:
+        result = _prepare_nurture_for_lead_locked(
+            db=db,
+            lead_id=lead_id,
+            approved_content={content_type: approved_candidates},
+            dedup_test_content_type=content_type,
         )
     except Exception:
         db.rollback()

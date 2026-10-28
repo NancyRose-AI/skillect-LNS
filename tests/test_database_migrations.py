@@ -77,6 +77,84 @@ class DatabaseMigrationTests(unittest.TestCase):
                 for index in inspector.get_indexes("nurture_image_metadata")
             )
         )
+        alert_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("lead_alerts")
+        }
+        self.assertTrue(
+            {
+                "reason",
+                "score",
+                "qualification_summary",
+            }.issubset(alert_columns)
+        )
+        self.assertFalse(alert_columns["reason"]["nullable"])
+
+    def test_hot_alert_migration_preserves_existing_alerts_and_normalizes_status(self):
+        command.upgrade(self.config, "0001_initial_schema")
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO leads (
+                        name, phone, email, source, status,
+                        lead_score, lead_temperature, ai_score, ai_temperature,
+                        created_at, updated_at
+                    ) VALUES (
+                        'Existing Alert Lead', '1234567890',
+                        'existing-alert@example.com', 'Test', 'new',
+                        10, 'cold', 0, 'cold',
+                        '2026-10-27 00:00:00', '2026-10-27 00:00:00'
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO lead_alerts (
+                        lead_id, alert_type, message, status, created_at
+                    ) VALUES
+                    (
+                        1, 'hot_lead', 'Legacy pending alert', 'pending',
+                        '2026-10-27 00:00:00'
+                    ),
+                    (
+                        1, 'hot_lead', 'Legacy handled alert', 'handled',
+                        '2026-10-27 00:00:00'
+                    )
+                    """
+                )
+            )
+
+        command.upgrade(self.config, "head")
+        with self.engine.connect() as connection:
+            migrated = connection.execute(
+                text(
+                    """
+                    SELECT message, reason, score,
+                           qualification_summary, status
+                    FROM lead_alerts
+                    ORDER BY id
+                    """
+                )
+            ).all()
+
+        self.assertEqual(len(migrated), 2)
+        self.assertEqual(migrated[0], (
+            "Legacy pending alert",
+            "Legacy pending alert",
+            0,
+            "",
+            "active",
+        ))
+        self.assertEqual(migrated[1], (
+            "Legacy handled alert",
+            "Legacy handled alert",
+            0,
+            "",
+            "resolved",
+        ))
 
     def test_upgrade_refuses_duplicates_without_deleting_existing_rows(self):
         command.upgrade(self.config, "0001_initial_schema")
