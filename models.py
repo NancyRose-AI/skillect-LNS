@@ -126,6 +126,7 @@ class Conversation(Base):
 
 # =========================================================
 # NURTURE MESSAGE MODEL
+# PERSON-2 AUTOMATED COLD-LEAD NURTURING
 # =========================================================
 
 class NurtureMessage(Base):
@@ -171,12 +172,99 @@ class Alert(Base):
         default="hot_lead",
     )
 
+    # =====================================================
+    # ENGAGEMENT CONTENT TRACKING
+    # =====================================================
+
+    # Examples:
+    # educational
+    # career_tip
+    # industry_update
+    # newsletter
+    # image
+    # batch_update
+    content_type = Column(
+        String(30),
+        nullable=True,
+    )
+
+    # Examples:
+    # AWS Cloud Engineering
+    # Azure Cloud Engineering
+    # DevOps
+    # Cloud Engineering
+    topic = Column(
+        String(100),
+        nullable=True,
+    )
+
+    # =====================================================
+    # NURTURE TRACKING
+    # =====================================================
+
     message = Column(Text, nullable=False)
 
     status = Column(
         String(20),
         nullable=False,
         default="active",
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+# =========================================================
+# LEAD ALERT MODEL
+# HOT LEAD / SALES ALERT TRACKING
+# =========================================================
+
+class LeadAlert(Base):
+    __tablename__ = "lead_alerts"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+    )
+
+    lead_id = Column(
+        Integer,
+        ForeignKey(
+            "leads.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    # Examples:
+    # hot_lead
+    # follow_up_required
+    alert_type = Column(
+        String(50),
+        nullable=False,
+    )
+
+    # Example:
+    # Lead 54 became HOT and requires sales follow-up.
+    message = Column(
+        Text,
+        nullable=False,
+    )
+
+    # Future values:
+    # pending
+    # acknowledged
+    # handled
+    status = Column(
+        String(20),
+        nullable=False,
+        default="pending",
     )
 
     created_at = Column(
