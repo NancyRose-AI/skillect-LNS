@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
+from sqlalchemy.exc import IntegrityError
 
 from datetime import (
     datetime,
@@ -25,6 +26,29 @@ import schemas
 from database import (
     engine,
     SessionLocal,
+)
+from sqlalchemy.engine import URL
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+
+TEST_DATABASE_URL = URL.create(
+    drivername="postgresql+psycopg2",
+    username=engine.url.username,
+    password=engine.url.password,
+    host=engine.url.host,
+    port=engine.url.port,
+    database="lead_db_test",
+)
+
+test_engine = create_engine(
+    TEST_DATABASE_URL,
+    pool_pre_ping=True,
+)
+
+TestSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=test_engine,
 )
 
 
@@ -63,7 +87,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # =========================================================
 # DATABASE SESSION
 # =========================================================
@@ -72,6 +95,14 @@ def get_db():
 
     db = SessionLocal()
 
+    try:
+        yield db
+
+    finally:
+        db.close()
+
+def get_test_db():
+    db = TestSessionLocal()
     try:
         yield db
 
@@ -151,6 +182,63 @@ def calculate_lead_score(lead):
     return score
 
 
+
+def create_hot_lead_alert(db, lead):
+    score = calculate_lead_score(lead)
+
+    existing_alert = (
+        db.query(models.Alert)
+        .filter(
+            models.Alert.lead_id == lead.id,
+            models.Alert.alert_type == "hot_lead",
+            models.Alert.status == "active",
+        )
+        .first()
+    )
+
+    # Resolve active alert when the lead is no longer hot.
+    if score < 80:
+        if existing_alert:
+            existing_alert.status = "resolved"
+            existing_alert.reason = (
+                f"Automatically resolved: lead score dropped to {score}"
+            )
+        return None
+
+    # Update existing alert instead of creating a duplicate.
+    if existing_alert:
+        existing_alert.score = score
+        existing_alert.message = f"Hot lead detected: {lead.name}"
+        existing_alert.reason = "Lead score reached 80 or above"
+        existing_alert.qualification_summary = (
+            f"Status: {lead.status}; "
+            f"Source: {lead.source}; "
+            f"Score: {score}"
+        )
+        return existing_alert
+
+    # Create a new alert for a hot lead.
+    alert = models.Alert(
+        lead_id=lead.id,
+        alert_type="hot_lead",
+        message=f"Hot lead detected: {lead.name}",
+        status="active",
+        reason="Lead score reached 80 or above",
+        score=score,
+        qualification_summary=(
+            f"Status: {lead.status}; "
+            f"Source: {lead.source}; "
+            f"Score: {score}"
+        ),
+    )
+
+    db.add(alert)
+    db.flush()
+    return alert
+
+
+
+
 # =========================================================
 # HELPER - LEAD TEMPERATURE
 # =========================================================
@@ -211,7 +299,7 @@ def create_activity(
 
 @app.get("/")
 def root():
-
+    
     return {
         "message":
         "Skillect Lead Nurturing System API is running"
@@ -595,37 +683,39 @@ def create_lead(
         follow_up_at=lead_data.follow_up_at,
     )
 
+  
     update_lead_score(lead)
 
     try:
-
         db.add(lead)
-
         db.flush()
 
         create_activity(
             db=db,
             lead_id=lead.id,
             activity_type="lead_created",
-            description=(
-                f"Lead '{lead.name}' was created"
-            ),
+            description=f"Lead '{lead.name}' was created",
+        )
+
+        db.commit()
+        db.refresh(lead)
+
+        create_hot_lead_alert(
+            db=db,
+            lead=lead,
         )
 
         db.commit()
 
-        db.refresh(lead)
-
     except IntegrityError:
-
         db.rollback()
-
         raise HTTPException(
             status_code=400,
             detail="Lead could not be created",
         )
 
     return lead
+
 
 
 # =========================================================
@@ -1004,13 +1094,17 @@ def update_lead(
         )
 
     try:
+        db.commit()
+        db.refresh(lead)
+
+        create_hot_lead_alert(
+            db=db,
+            lead=lead,
+        )
 
         db.commit()
 
-        db.refresh(lead)
-
     except IntegrityError:
-
         db.rollback()
 
         raise HTTPException(
@@ -1675,3 +1769,106 @@ def db_check(db: Session = Depends(get_db)):
         "models_file": models.__file__,
         "database_file": __import__("database").__file__,
     }
+
+
+@app.get("/alerts")
+def get_alerts(db: Session = Depends(get_db)):
+    alerts = (
+        db.query(models.Alert)
+        .order_by(models.Alert.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": alert.id,
+            "lead_id": alert.lead_id,
+            "alert_type": alert.alert_type,
+            "message": alert.message,
+            "status": alert.status,
+            "created_at": alert.created_at,
+            "reason": alert.reason,
+            "score": alert.score,
+            "qualification_summary": alert.qualification_summary,
+        }
+        for alert in alerts
+    ]
+
+
+@app.post("/alerts/test/{lead_id}")
+def create_test_alert(
+    lead_id: int,
+    db: Session = Depends(get_test_db),
+):
+    lead = db.query(models.Lead).filter(
+        models.Lead.id == lead_id
+    ).first()
+
+    if not lead:
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found in test database",
+        )
+
+    alert = models.Alert(
+        lead_id=lead.id,
+        alert_type="hot_lead",
+        message=f"Hot lead detected: {lead.name}",
+        status="active",
+        reason="Test alert created successfully",
+        score=lead.lead_score,
+        qualification_summary=(
+            f"Lead score: {lead.lead_score}; "
+            f"Temperature: {lead.lead_temperature}"
+        ),
+    )
+
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+
+    return {
+        "message": "Test alert created successfully",
+        "alert_id": alert.id,
+        "lead_id": alert.lead_id,
+        "score": alert.score,
+    }
+
+
+
+@app.patch("/alerts/{alert_id}/status")
+def update_alert_status(
+    alert_id: int,
+    status: str,
+    db: Session = Depends(get_db),
+):
+    allowed_statuses = ["active", "acknowledged", "resolved"]
+
+    if status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail="Status must be active, acknowledged, or resolved",
+        )
+
+    alert = db.query(models.Alert).filter(
+        models.Alert.id == alert_id
+    ).first()
+
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail="Alert not found",
+        )
+
+    alert.status = status
+    db.commit()
+    db.refresh(alert)
+
+    return {
+        "message": "Alert status updated successfully",
+        "alert_id": alert.id,
+        "status": alert.status,
+    }
+
+
+
